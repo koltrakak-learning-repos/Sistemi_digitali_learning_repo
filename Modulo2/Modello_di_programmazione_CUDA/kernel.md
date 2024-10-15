@@ -37,8 +37,8 @@ La Compute Capability di NVIDIA è un numero che identifica le caratteristiche e
 
 Ad esempio: 
 - Il numero massimo totale di thread per blocco è 1024 per la maggior parte delle GPU (compute capability >= 2.x). Un blocco può essere organizzato in 1, 2 o 3 dimensioni, ma ci sono limiti per ciascuna dimensione. Esempio:
-    - x: 1024 , y: 1024, z: 64
     - Il prodotto delle dimensioni x, y e z non può superare 1024 (queste limitazioni potrebbero cambiare in futuro).
+    - x: 1024 , y: 1024, z: 64
 - Anche le griglie hanno un numero massimo di blocchi che possono contenere
     - Max grid x-dimension: 2^31-1
     - Max grid y/z-dimension: 65535
