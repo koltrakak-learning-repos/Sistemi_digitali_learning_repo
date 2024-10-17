@@ -80,7 +80,7 @@ Permette di:
 
 Come si usa?
 
-    ncu --set full ./array_sum
+    $ ncu --set full <application> [application_args]
 
 ## Nvidia Nsight Systems vs. Compute
 In Sintesi:
