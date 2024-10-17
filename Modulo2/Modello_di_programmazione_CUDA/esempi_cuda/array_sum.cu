@@ -36,7 +36,15 @@ double cpuSecond() {
 
 void initialData(float *ip, int size) {
     for (int i = 0; i < size; i++) {
-        ip[i] = (float)(rand() & 0xFF) / 10.0f;
+        /*
+            & operatore per bitwise and.
+            facendo:
+                rand() & 0xFF
+            si sta limitando rand() ai valori tra 0 e 255
+
+            (più veloce rispetto a rand() % 256)
+        */
+        ip[i] = (float)(rand() & 0xFF) / 10.0f; // [0.0, 25.5]
     }
 }
 
@@ -47,8 +55,12 @@ void sumArrayOnHost(float *A, float *B, float *C, const int N) {
 }
 
 __global__ void sumArrayOnGPU(float *A, float *B, float *C, int N) {
+    //calcolo indice globale
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N) C[i] = A[i] + B[i];
+
+    //non considero gli eventuali thread in eccesso nell'ultimo blocco
+    if (i < N)
+        C[i] = A[i] + B[i];
 }
 
 
@@ -80,8 +92,8 @@ int main(int argc, char **argv) {
     float *h_A, *h_B, *hostRef, *gpuRef;
     h_A = (float *)malloc(nBytes);
     h_B = (float *)malloc(nBytes);
-    hostRef = (float *)malloc(nBytes);
-    gpuRef = (float *)malloc(nBytes);
+    hostRef = (float *)malloc(nBytes);  //risultato host
+    gpuRef = (float *)malloc(nBytes);   //risultato copiato dal device nella memoria dell'host
 
     // Initialize data
     initialData(h_A, nElem);
@@ -94,7 +106,7 @@ int main(int argc, char **argv) {
     double iStart = cpuSecond();
     sumArrayOnHost(h_A, h_B, hostRef, nElem);
     double iElaps = cpuSecond() - iStart;
-    printf("sumArrayOnHost Time elapsed %f sec\n", iElaps);
+    printf("\tsumArrayOnHost Time elapsed %f sec\n", iElaps);
 
     // Allocate device global memory
     float *d_A, *d_B, *d_C;
@@ -113,7 +125,7 @@ int main(int argc, char **argv) {
     sumArrayOnGPU<<<gridSize, blockSize>>>(d_A, d_B, d_C, nElem);
     CHECK(cudaDeviceSynchronize());
     iElaps = cpuSecond() - iStart;
-    printf("sumArrayOnGPU <<<%d, %d>>> Time elapsed %f sec\n", gridSize, blockSize, iElaps);
+    printf("\tsumArrayOnGPU <<<%d, %d>>> Time elapsed %f sec\n", gridSize, blockSize, iElaps);
 
     // Copy kernel result back to host side
     CHECK(cudaMemcpy(gpuRef, d_C, nBytes, cudaMemcpyDeviceToHost));
