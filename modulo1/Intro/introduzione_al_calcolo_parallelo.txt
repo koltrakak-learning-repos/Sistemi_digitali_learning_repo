@@ -118,8 +118,8 @@ Una architettura Eterogenea (CPU+GPU) -> best of both worlds
 --- APPROCCI AL PARALLELISMO
 	- parallelimo a livello di dati
 	- parallelismo a livello di istruzione
-		-> pipeline: 			...
-		-> superscalarità: 		più pipeline, n instruction fetch contemporaneamente, n decode ..., ecc.
+		-> pipeline: 			    ...
+		-> superscalarità: 		    più pipeline, n instruction fetch contemporaneamente, n decode ..., ecc.
 		-> Out-of-order execution:	micro-op eseguite non nel loro ordine naturale ma appena è disponibile una risorsa, per poi riordinare
 	- parallelismo a livello di thread
 		-> distribuisco i thread su piu core

@@ -40,7 +40,6 @@ si può avere allineamento sia con allocazione
     - dinamica-> mmalloc()
 
 ### CACHE
-
 chiedi a chatgpt per la definizione di una linea di cache e di indirizzamento all'interno di una cache
 
 ...
