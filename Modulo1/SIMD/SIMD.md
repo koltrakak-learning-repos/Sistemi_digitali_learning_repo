@@ -1,14 +1,27 @@
-### extended multimedia register
-registri più grossi presenti in una architettura SIMD (una sorta di array di registri).
+## Paradigma di elaborazione SIMD
+Una singola istruzione SIMD elabora multipli dati eseguendo su di essi la medesima operazione. Questi dati sono memorizzati  in __registri speciali/estesi__ della CPU.
 
-operazioni su registri estesi equivalgono a operazioni multiple contemporanee sui sotto registri singoli.
+### eXtended Multimedia Register
+I registri XMM della CPU di una architettura SIMD sono di taglia estesa (eg, 64, 128, 256, 512 bit) rispetto ai registri dell’architettura base. Pensabili come ad una sorta di __array di registri__ normali.
 
-OSS: una condizione necessaria per far si che si abbia un vantaggio utilizzando i registri estesi è che si possano caricare/scaricare 
-dati in questi registri velocemente e facilmente.
+Le operazioni sui registri estesi equivalgono circa ad operazioni multiple contemporanee sui registri singoli. Chiaramente se prima, ad esempio, avevamo bisogno di una ALU, adesso ne abbiamo bisogno di n per eseguire i calcoli in parallelo, lo stesso vale per tutte le altre unità funzionali.
+
+OSS: una condizione necessaria per far si che si abbia un vantaggio utilizzando i registri estesi è che si possano caricare/scaricare  dati in questi registri velocemente e facilmente.
 
 NB: nel caso di overflow in questo tipo di registri, si ha un grosso overhead di gestione rispetto al caso dei registri classici
 
-NB_2: chiaramente se prima avevamo bisogno di una ALU, adesso abbiamo bisogno di n ALU
+### Caratteristiche SIMD
+- Incrementa il parallelismo agendo a livello dei dati
+- Può essere utilizzata con tutte le strategie menzionate (eg, pipelining)
+- Richiede un numero di modifiche hardware limitato vs SISD come l’integrazione di ALU addizionali con impatto modesto in termini maggiori di risorse utilizzate
+- Supportato da quasi tutte le ISA più diffuse (eg, x86, ARM e RISC-V)
+- Tuttavia, ISA diverse hanno set di istruzioni SIMD differenti sebbene spesso con funzionalità simili
+    - Noi vedremo principalmente il set di istruzioni SIMD appartenente all'ISA x86
+- __Anche all’interno della stessa ISA, possono esserci diversi set di istruzioni SIMD__. La tendenza è quella di supportare tutte le estensioni SIMD precedenti, principalmente per ragioni di compatibilità software
+
+
+
+...
 
 noi utilizzeremo principalmente SSE
 
