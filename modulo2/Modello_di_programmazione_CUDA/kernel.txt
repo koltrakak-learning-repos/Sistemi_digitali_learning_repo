@@ -1,0 +1,13 @@
+CHE COS'é UN KERNEL CUDA?
+    • Un kernel CUDA è una funzione che viene eseguita in parallelo sulla GPU da migliaia o milioni di thread.
+    • Rappresenta il nucleo computazionale di un programma CUDA.
+    • Nei kernel viene definita la logica di calcolo per un singolo thread e l'accesso ai dati associati a quel thread.
+    • Ogni thread esegue lo stesso codice kernel, ma opera su diversi elementi dei dati.
+
+QUALIFICATORI
+un kernel ha un prefisso che specifica dove verrà eseguito il kernel:
+    - __global__
+    - __device__
+    - __host__
+
+-----
