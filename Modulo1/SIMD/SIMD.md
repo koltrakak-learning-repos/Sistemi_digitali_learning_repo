@@ -56,7 +56,7 @@ Gli __intrinsics__ non sono altro che funzioni inline (ovvero non c'è una vera 
 ## Tipi di dato e operazioni in x86 SSE
 I registri SSE a 128 bit possono essere utilizzati con i seguenti tipi di dato:
 - __m128i (interi)
-    - 16x8 bit – epi8  (signed), epu8 (unsigned)
+    - 16x8 bit – epi8  (signed), epu8 (unsigned)            ; epi = extended packed integer
     - 8x16 bit – epi16 (signed), epu16 (unsigned)
     - 4x32 bit – epi32 (signed), epu32 (unsigned)
     - 2x64 bit – epi64 (signed)
@@ -102,5 +102,42 @@ Nei linguaggi di programmazione, si può forzare l'allineamento delle variabili 
     - void _mm_free (void * mem_addr)
     - ad esempio: char *SIMD_array = (char *) _mm_malloc(1024, 16);     ...    _mm_free(SIMD_array);
 
-
 Ricorda: l'aritmetica dei puntatori si basa sulla dimensione del dato puntato
+
+## Altre istruzioni
+...
+    _mm_set ... i parametri sono in ordine inverso rispetto a quello della significatività dei bit
+    //extract
+
+Istruzioni lente! Un'alternativa potrebbe essere il mascheramento con degli and, ma non cambia troppo.
+
+Mascheramento però utilizzato molto in questo mondo. Questo perchè non esistono branch l'unica modalità contemplata è quella di un unico flusso di esecuzione. Considera questo esmpio: se devo saltare in base ad un registro esteso maggiore o minore, se 3 linee su 8 sono maggiori, salto o no? Non ha senso. Lo stesso vale per esempio con l'overflow nel caso delle somme overflow non gestito.
+
+Per questi tipo di situazioni si usa il mascheramento.
+
+### operazioni logiche
+Anche le operazioni logiche bit a bit vengono usate molto in questo mondo.
+
+differenza tra shift logico e aritmetico
+    - logico: faccio entrare degli zeri
+    - aritemtico: faccio ancora entrare degli zeri ma devo anche mantenere il segno
+        - per questo motivo lo shift aritmetico a sinistra non ha senso -> corrisponde a quello logico
+
+### shuffling
+una delle cose fondamentali che un set di istruzioni SIMD deve supportare è quella di spostare i dati all'interno del registro esteso
+
+### packing e unpacking
+una sorta di casting... che ovviamente è soggetta a troncamento o meglio a saturazione in questo caso.
+
+impachettare è utile perchè può permettere un maggiore grado di parallelismo
+
+    __m128i _mm_packus_epi16    ; packus = pack unsigned saturation
+...
+
+### blending
+combinazione del contenuto di due registri mediante anche un immediato
+
+### istruzioni di confronto
+
+### ESERCIZIO DEL PROF
+prova anche la sua strategia
