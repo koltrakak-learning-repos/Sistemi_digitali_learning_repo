@@ -23,8 +23,8 @@ Il singolo SM è a sua volta composto da tanta roba:
 - Cuda cores
     - unità di elaborazione che eseguono le istruzioni; composte da ALU, FPU (Floating Point Unit, alu per float), ecc...
 - Special Function Units (SFU)
-    - Accelerano calcoli matematici complessi.
-- Register file
+    - Accelerano calcoli matematici complessi. Come seno coseno, ecc...
+- Register files
     - memoria __privata di ogni thread__ per dati temporanei.
 - Warp scheduler
     - Coordinano l'esecuzione dei thread sui diversi core CUDA.
@@ -35,8 +35,8 @@ Il singolo SM è a sua volta composto da tanta roba:
     - ad es. se arriva una istruzione di somma, la DU attiva tutte le unità necessarie per eseguire l'istruzione
 - Load/Store units
     - Gestiscono il trasferimento dati da/verso la memoria.
-- Shared Memory (L1 Cache)
-    - Memoria ad alta velocità condivisa tra i thread di un blocco.
+- Shared Memory/L1 Cache
+    - Memoria ad alta velocità __condivisa tra tutti i thread di un blocco__.
 - Instruction Cache
     - Memorizza temporaneamente le istruzioni usate di frequente.
 
@@ -49,6 +49,8 @@ I CUDA Core usano __registri condivisi a livello di Streaming Multiprocessor__ p
 
 Inizialmente, i CUDA Core erano unità di elaborazione relativamente semplici, in grado di eseguire sia operazioni intere (INT) che in virgola mobile (FP) in un ciclo di clock (fully pipelined). L'architettura e la funzionalità dei CUDA Core sono evolute nel tempo, passando __da unità generiche__(operazioni con interi e float nello stesso core) a unità __specializzate__.
 
+NB: oggigiorno con cuda core si intendono solo le unita FP32 non anche il resto tipo tensor core.
+
 Dall'architettura Kepler, NVIDIA ha introdotto la specializzazione delle unità di calcolo (cuda core) __all'interno di uno SM__:
 - Unità FP64: Dedicate alle operazioni in virgola mobile a doppia precisione.
 - Unità FP32: Dedicate alle operazioni in virgola mobile a singola precisione.
@@ -59,6 +61,8 @@ Dall'architettura Kepler, NVIDIA ha introdotto la specializzazione delle unità 
 - Unità di Rasterizzazione: Utilizzate per la rasterizzazione delle immagini durante il rendering.
 
 ![alt text](immagini/def_tensore.png)
+
+
 
 #### Differenze dei Cuda core rispetto ai core delle CPU:
 - Semplicità Architetturale: Le varie unità di gestione all’interno di un SM sono più semplici rispetto ai core delle CPU, __senza unità di controllo complesse__, permettendo una maggiore densità di unità specializzate.
@@ -75,3 +79,4 @@ offrono performance elevate anche per compiti specifici come l'Intelligenza Arti
 - Calcolo CUDA Core Totali: Totale CUDA Core = (SM per GPU) × (CUDA Core per SM)
 - Calcolo Throughput Teorico: Throughput FP32 = Totale CUDA Cores FP32 × 2 × Frequenza di clock. (x2 in quanto si hanon 2 operazioni FP32/ciclo, e.g. Fused Multiply-Add))
 
+Gli SM nelle architetture più recenti sono anche poi partizionati.
