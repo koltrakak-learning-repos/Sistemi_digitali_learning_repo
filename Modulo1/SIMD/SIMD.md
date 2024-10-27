@@ -104,40 +104,80 @@ Nei linguaggi di programmazione, si può forzare l'allineamento delle variabili 
 
 Ricorda: l'aritmetica dei puntatori si basa sulla dimensione del dato puntato
 
-## Altre istruzioni
-...
-    _mm_set ... i parametri sono in ordine inverso rispetto a quello della significatività dei bit
-    //extract
+## Botta di istruzioni utili per programmazione nel modello SIMD
 
-Istruzioni lente! Un'alternativa potrebbe essere il mascheramento con degli and, ma non cambia troppo.
+### Caricamento e estrazione con registri estesi
+- Caricamento (non efficiente) di un registro esteso con dati non necessariamente allineati
+    - __m128i _mm_set_epi32 (int e0, int e1, int e2, int e3)
+    - Istruzione lenta! Un'alternativa potrebbe essere il mascheramento con degli and, ma non cambia troppo.
+- Estrazione (non efficiente) di dati dai registri estesi
+    - E’ possibile estrarre un singolo valore da un registro esteso
+    - int _mm_extract_epi32(__m128i a, const int imm8)
+    - L’istruzione esiste per vari formati di dati (eg, interi a 8 bit, 16 bit, 32 bit)
 
-Mascheramento però utilizzato molto in questo mondo. Questo perchè non esistono branch l'unica modalità contemplata è quella di un unico flusso di esecuzione. Considera questo esmpio: se devo saltare in base ad un registro esteso maggiore o minore, se 3 linee su 8 sono maggiori, salto o no? Non ha senso. Lo stesso vale per esempio con l'overflow nel caso delle somme overflow non gestito.
+### Copia con inserimento di un valore
+Questa istruzione consente di copiare un registro in un altro modificando un singolo elemento del registro sorgente
 
-Per questi tipo di situazioni si usa il mascheramento.
+### Mascheramento e branching in SIMD
+Il mascheramento è utilizzato molto nel mondo SIMD. Questo perchè __non sono permessi i branch__, l'unica modalità contemplata è quella di un __unico flusso di esecuzione__ su dati diversi. Considera questo esempio: se il mio processore deve decidere se prendere un branch o meno in base al valore di un registro esteso, se 3 linee su 8 rispettano la condizione di branching e le altre 5 no, prendo il branch oppure no? Non ha senso la domanda in primo luogo.
+
+Una soluzione, se si vuole applicare delle operazioni solo su alcuni dati di un registro esteso è usare il __mascheramento__.
+
+Una situazione simile si incontra con la gestione dell'overflow nel caso delle somme fra registri estesi, quest'ultimo infatti in SIMD non è gestito.
 
 ### operazioni logiche
-Anche le operazioni logiche bit a bit vengono usate molto in questo mondo.
+Anche le operazioni logiche bit a bit tra registri estesi vengono usate molto in questo mondo. Alcune notevoli sono:
+- and   
+- or 
+- xor 
+- andnot
+    - dest = NOT(a) AND b
+In generale queste istruzioni sono utili per mascheramento
 
-differenza tra shift logico e aritmetico
-    - logico: faccio entrare degli zeri
-    - aritemtico: faccio ancora entrare degli zeri ma devo anche mantenere il segno
-        - per questo motivo lo shift aritmetico a sinistra non ha senso -> corrisponde a quello logico
+__ricorda__: differenza tra shift logico e aritmetico
+- Logico: faccio entrare degli zeri
+- Aritmetico: faccio ancora entrare degli zeri ma devo anche mantenere il segno
+    - per questo motivo lo shift aritmetico a sinistra non ha senso, corrisponde a quello logico
+
+### operazioni di shifting
 
 ### shuffling
-una delle cose fondamentali che un set di istruzioni SIMD deve supportare è quella di spostare i dati all'interno del registro esteso
+Le istruzioni di shuffling sono istruzioni che consentono di smistare i dati di un registro sorgente in posizioni differenti nel registro destinazione __in funzione di una maschera__
+
+Utili quando si desiderano disporre in un determinato ordine i valori presenti in un registro esteso
 
 ### packing e unpacking
-una sorta di casting... che ovviamente è soggetta a troncamento o meglio a saturazione in questo caso.
+Istruzioni che impacchettano in un registro il contenuto di due registri effettuando il casting (con saturazione) a un tipo di dato di __dimensione inferiore__ (32→16, 16→8).
 
-impachettare è utile perchè può permettere un maggiore grado di parallelismo
+Impachettare è utile perchè permette un maggiore grado di parallelismo, a scapito però della precisione dei valori rappresentati.
+
+    - Bisogna capire in che contesti può essere usato.
 
     __m128i _mm_packus_epi16    ; packus = pack unsigned saturation
-...
+
+In modo specchiato si può anche fare unpacking anche detto interleaving del contenuto di due registri estesi. Questo gruppo di istruzioni consentono di combinare il contenuto di due registri attraverso interleaving, ovvero alternando prima una lane di un registro e poi l'altra fino a riempire il registro destinazione (e tralasciando delle lane nei due registri sorgente).
+
+per la natura dell'operazioni esistono sia istruzioni di unpacking "high", cioè che considerando prima i lane a partire dai most sig. bits, e low che fanno il contrario. 
 
 ### blending
-combinazione del contenuto di due registri mediante anche un immediato
+Questo gruppo di istruzioni consentono di combinare contenuto di due registri __in funzione di un valore immediato (blend) o un registro (blendv)__
 
-### istruzioni di confronto
+Disponibili per i tipi di dati interi a 8 (blendv) e 16 bit (blend).
+
+### Istruzioni di confronto
+Richiamando quanto detto prima, nel paradigma SIMD le istruzioni di confronto si usano in modo diverso rispetto ad un paradigma scalare. Qui elementi posti nelle stesse posizioni all’interno dei registri estesi subiscono il confronto e generano una maschera che sintetizza il risultato di quest'ultimo. Sfruttando questa maschera nelle operazioni successive si può decidere a quali lane applicare una istruzione e a quali no.
+
+- Sono previste tre tipologie di confronti: uguale (EQ), maggiore (GT) o minore (LT)
+    - EQ: per valori interi a 8, 16, 32, 64 bit
+    - GT: per valori interi signed a 8, 16, 32, 64 bit
+    - LT: per valori interi signed a 8, 16, 32 bit
+
+### Istruzioni di confronto senza branch/salti?
+Rispieghiamo quanto già detto sui branch meglio: 
+- Come appena visto, esistono istruzioni per eseguire confronti ma non istruzioni di salto condizionato (branch)
+- Questo era prevedibile essendo possibile un solo flusso di esecuzione delle istruzioni
+- Per eseguire operazioni diverse sui dati all’interno di un unico flusso di esecuzione si utilizzano delle maschere (eg, l’output di una istruzione di confronto)
+- Mediante le maschere è possibile filtrare dati che soddisfano (o non soddisfano) determinate condizioni
 
 ### ESERCIZIO DEL PROF
 prova anche la sua strategia
