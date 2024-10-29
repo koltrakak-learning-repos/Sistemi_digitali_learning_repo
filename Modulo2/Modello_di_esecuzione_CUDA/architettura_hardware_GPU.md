@@ -18,6 +18,7 @@ Una GPU è composta da tanta roba, ad esempio:
     - una GPU è composta da tanti SM (16 nell'esempio, al giorno d'oggi anche 144). Ogni SM si occuperà di lanciare i thread definiti nella griglia.
 
 Gli Streaming Multiprocessors (SM) sono le __unità fondamentali di elaborazione__ all'interno delle GPU. Ogni SM contiene diverse unità di calcolo, memoria condivisa e altre risorse essenziali per gestire l'esecuzione concorrente e parallela di migliaia di thread. Il parallelismo hardware delle GPU è ottenuto attraverso la replica di questo blocco architetturale.
+- gli sm eseguono migliaia di thread
 
 Il singolo SM è a sua volta composto da tanta roba:
 - Cuda cores
@@ -43,7 +44,7 @@ Il singolo SM è a sua volta composto da tanta roba:
 ### Cuda core
 Un CUDA Core è l'unità di elaborazione di base all'interno di un SM di una GPU NVIDIA. 
 
-    Ruolo nel Modello CUDA: esecuzione Parallela! Ogni CUDA Core esegue un thread in parallelo con altri nel medesimo SM.
+Ruolo nel Modello CUDA: esecuzione Parallela! __Ogni CUDA Core esegue un thread__ in parallelo con altri nel medesimo SM.
 
 I CUDA Core usano __registri condivisi a livello di Streaming Multiprocessor__ per memorizzare temporaneamente dati durante l'esecuzione dei thread.
 
@@ -62,8 +63,6 @@ Dall'architettura Kepler, NVIDIA ha introdotto la specializzazione delle unità 
 
 ![alt text](immagini/def_tensore.png)
 
-
-
 #### Differenze dei Cuda core rispetto ai core delle CPU:
 - Semplicità Architetturale: Le varie unità di gestione all’interno di un SM sono più semplici rispetto ai core delle CPU, __senza unità di controllo complesse__, permettendo una maggiore densità di unità specializzate.
     - NB: unità di controllo semplici implicano:
@@ -77,6 +76,6 @@ offrono performance elevate anche per compiti specifici come l'Intelligenza Arti
 - Aumento di SM e CUDA Core: Ogni generazione ha generalmente aumentato il numero di SM e CUDA Core.
 - Miglioramento del Parallelismo: L'aumento dei CUDA Core permette un __maggiore parallelismo__, migliorando le prestazioni complessive della GPU.
 - Calcolo CUDA Core Totali: Totale CUDA Core = (SM per GPU) × (CUDA Core per SM)
-- Calcolo Throughput Teorico: Throughput FP32 = Totale CUDA Cores FP32 × 2 × Frequenza di clock. (x2 in quanto si hanon 2 operazioni FP32/ciclo, e.g. Fused Multiply-Add))
+- Calcolo Throughput Teorico: Throughput FP32 = Totale CUDA Cores FP32 × 2 × Frequenza di clock. (x2 in quanto si hanno 2 operazioni FP32/ciclo, e.g. Fused Multiply-Add))
 
-Gli SM nelle architetture più recenti sono anche poi partizionati.
+Gli SM nelle architetture più recenti sono anche poi __partizionati__ (replicati dal punto di vista delle architetture passate), ovvero sono suddivisa in più partizioni che vanno a formare un intero SM nelle architetture passate. Ogni partizione sembra uno SM a se stante, con il proprio register file, warp scheduler, i propri cuda/tensor core ecc...
