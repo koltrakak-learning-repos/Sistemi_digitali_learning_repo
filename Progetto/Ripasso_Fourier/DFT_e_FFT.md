@@ -28,6 +28,8 @@ __NB__: Le formule di trasformazione ed antitrasformazione stabiliscono una corr
 ### Legame fra trasformata di Fourier discreta e continua
 La trasformata di Fourier discreta costituisce un elemento fondamentale dell’elaborazione digitale dei segnali (Digital Signal Processing).  Essa può in particolare essere utilizzata per __calcolare, in modo approssimato, la trasformata di Fourier di segnali tempo continui__ (mediante un numero di calcoli finito).
 
+__NB__: La DFT assume che il segnale sia periodico con un periodo uguale alla lunghezza del campione ottenuto considerando il segnale in modo continuo dal primo campione all'ultimo. 
+
 Sia dunque x(t) una funzione con trasformata X(w). Risulterebbe comodo che prendendo N campioni di x(t) ed eseguendo la DFT si ottenessero N campioni della trasformata X(w). Il legame è tuttavia più complesso, e riguarda le __ripetizioni periodiche di x(t) e di X(w)__. 
 
 Seguono vari passaggi, in maniera superficiale:
