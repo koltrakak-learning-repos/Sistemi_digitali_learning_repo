@@ -178,6 +178,3 @@ Rispieghiamo quanto già detto sui branch meglio:
 - Questo era prevedibile essendo possibile un solo flusso di esecuzione delle istruzioni
 - Per eseguire operazioni diverse sui dati all’interno di un unico flusso di esecuzione si utilizzano delle maschere (eg, l’output di una istruzione di confronto)
 - Mediante le maschere è possibile filtrare dati che soddisfano (o non soddisfano) determinate condizioni
-
-### ESERCIZIO DEL PROF
-prova anche la sua strategia
