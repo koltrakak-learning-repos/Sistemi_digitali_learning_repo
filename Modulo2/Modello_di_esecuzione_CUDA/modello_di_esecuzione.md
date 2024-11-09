@@ -47,7 +47,7 @@ __SIMT__: Modello ibrido adottato in CUDA che __combina parallelismo a livello d
 
 La caratteristica fondamentale è che permette di scrivere degli if -> divergenza, gestita internamente dall'hardware. Tuttavia, questo ha un costo, il ramo if e il ramo else vengono eseguite sequenzialmente in questo ordine
 
-### Warp: L'Unità Fondamentale di Esecuzione nelle SM
+## Warp: L'Unità Fondamentale di Esecuzione nelle SM
 Come gia detto sopra, i warp sono raggruppamenti di 32 thread ottenuti suddivendendo un blocco. __Fisicamente__ i thread eseguiti parallelamente sono quelli di uno warp non quelli di un blocco. La vista __logica__ invece, è quella in cui sono i blocchi a venire gestiti direttamente.
 
     Lo SM gestisce warp e non blocchi.
@@ -121,11 +121,22 @@ OSS: Il warp scheduler effettua una specie di cambio di contesto nell'eseguire i
         - Padding: I thread di padding sono utilizzati in situazioni in cui il numero totale di thread nel blocco non è un multiplo di 32, per garantire che il warp sia completamente riempito.
     - Lo stato di ogni thread è tracciato attraverso una thread mask o maschera di attività (un registro hardware)
 
+## Warp scheduler
+Sono presenti coppie di warp-scheduler per ogni partizione di uno SM.
 
+__Funzionamento Generale__:
+- Processo di Schedulazione: I warp scheduler all'interno di un SM selezionano i warp eleggibili ad ogni ciclo di clock e li inviano alle __dispatch unit__, responsabili dell’assegnazione effettiva alle unità di esecuzione.
+- Gestione degli Stalli: Se un warp è in stallo, il warp scheduler seleziona un altro warp eleggibile per l'esecuzione, garantendo consentendo l'esecuzione continua e l'uso ottimale delle risorse di calcolo.
+- Cambio di Contesto: Il cambio di contesto tra warp è estremamente rapido (on-chip per tutta la durata del warp) grazie alla partizione delle risorse di calcolo e alla struttura hardware della GPU.
 
-## Scheduling dei warp
-è presente un warp-scheduler per ogni partizione di uno SM
+__NB__: L'obiettivo dello warp-scheduler è semplicemente di occupare il più possibile le risorse disponibili. Quindi il primo warp che trova disponibile viene schedulato.
+__NB_2__: I warp scheduler contribuiscono a nascondere la latenza eseguendo warp alternativi quando altri sono in stallo, garantendo un utilizzo efficace delle risorse computazionali (__Latency Hiding__).
 
-l'obiettivo dello warp-scheduler è semplicemente di occupare il più possibile le risorse disponibili. Quindi il primo warp che trova disponibile lo schedula
+__Limiti Architettonici__:
+- Il numero di warp attivi su un SM è limitato dalle risorse di calcolo. (Esempio: 64 warp concorrenti su un SM Kepler).
+- Il numero di warp selezionati ad ogni ciclo è limitato dal numero di scheduler di warp. (Esempio: 4 su un SM Kepler).
+    - Ad ogni ciclo di clock, la capacità di eseguire effettivamente nuove istruzioni (appartenenti ai warp all'interno di una partizione) nell'SM, è limitata dalla quantità di warp-scheduler e unità di dispatch presenti.
 
-la capacità di eseguire effettivamente nuove istruzioni (appartenenti ai warp all'interno di una partizione) nell'SM ad ogni ciclo di clock è limitata dalla quantità di warp-scheduler e unità di dispatch presenti.
+Questi limiti architettonici si traducono in limiti sul parallelismo effettivo possibile in una GPU.
+
+...
