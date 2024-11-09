@@ -84,7 +84,8 @@ int main() {
             batch_16_bit_high = _mm_unpackhi_epi8(batch_8_bit, zero_register);
             // sommo orizzontalmente a due a due considerando le lane sopra (che in teoria sono da 8 bit) come se fossero da 16
             // ottengo un registro con 8 lane
-            addendi = _mm_hadd_epi16(batch_16_bit_low, batch_16_bit_high);  
+            // addendi = _mm_hadd_epi16(batch_16_bit_low, batch_16_bit_high);  
+            addendi = _mm_add_epi16(batch_16_bit_low, batch_16_bit_high);  
             // accumulo i risultati
             accumuli = _mm_add_epi16(accumuli, addendi);
         }
