@@ -26,7 +26,7 @@ void print_array_short(uint16_t *A, int dim) {
 int main() {
     srand(time(NULL));
 
-    uint8_t* A  = (uint8_t*)_mm_malloc (VECTOR_LENGTH, sizeof(uint8_t));  // 16 byte (128 bit) = taglia del registro esteso aligned
+    uint8_t* A  = (uint8_t*)_mm_malloc (VECTOR_LENGTH, sizeof(CHAR_DATA_LANES));  // 16 byte (128 bit) = taglia del registro esteso aligned
     for (int i=0; i < VECTOR_LENGTH; i++) {   
         A[i] = rand() % 256;
     }
