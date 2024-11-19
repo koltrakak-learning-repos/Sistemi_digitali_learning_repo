@@ -6,6 +6,7 @@ Più precisamente la DFT stabilisce una corrispondenza biunivoca fra due n-ple d
 ![alt text](immagini/corrispondenza_n-ple_in_DFT.png)
 
 L’elemento __q-esimo__ dell’n-pla di arrivo è definito come (__formula di trasformazione__):
+
 ![alt text](immagini/trasformazione_DFT.png)
 
 Si noti che i termini sono numerati a partire da 0 e di conseguenza la sommatoria iterna fino a N-1.
@@ -32,7 +33,7 @@ __NB__: La DFT assume che il segnale sia periodico con un periodo uguale alla lu
 
 Sia dunque x(t) una funzione con trasformata X(w). Risulterebbe comodo che prendendo N campioni di x(t) ed eseguendo la DFT si ottenessero N campioni della trasformata X(w). Il legame è tuttavia più complesso, e riguarda le __ripetizioni periodiche di x(t) e di X(w)__. 
 
-Seguono vari passaggi, in maniera superficiale:
+Seguono vari passaggi; in maniera superficiale:
 - costruzione delle ripetizioni periodiche di x(t) e X(w) scegliendo con cura i periodi T_p e w_p
 - definizione degli __intervalli di campionamento__ delta_t e delta_w con cui recuperare i campioni dalle ripetizioni periodiche.
 - recupero dei campioni secondo gli intervalli definiti nel passo precedente
@@ -46,11 +47,11 @@ __NB__: Quando i termini delle due ripetizioni non si sovrappongono in modo sign
 
     Le N-ple nei tempi e nelle frequenze, in generale rappresentative delle ripetizioni periodiche, diventano rappresentative delle sole x(t) e X(W).
 
-__Se ciò si verifica la DFT può essere utilizzata per calcolare la trasformata continua__.
+__Se ciò si verifica (Teorema di Shannon) la DFT può essere utilizzata per calcolare campioni della trasformata continua__.
 
 Per evitare l’aliasing occorre assumere sia T_p che w_p sufficientemente grandi (distanziamo le ripetizioni periodiche), il che comporta la __scelta un numero di punti N sufficientemente elevato__. D'altra parte, ciò riduce i valori di delta_t e delta_w e favorisce quindi una conveniente risoluzione degli assi dei tempi e delle pulsazioni che riduce l'errore quando si andrà a recuperare la trasformata del segnale originale mediante __interpolazione__ dei punti ottenuti con la __DFT__.
 
-__NB__: chiaramente i campioni della trasformata non sono disponibili fin da subito, essi si ottengono applicando la DFT e la relazione sopra ai campioni ottenuto dal segnale nel dominio del tempo. Interpolando i campioni poi si raggiunge la trasformata tempo-continua. 
+__NB__: chiaramente i campioni della trasformata non sono disponibili fin da subito, essi si ottengono applicando la DFT e la relazione sopra ai campioni ottenuto dal segnale nel dominio del tempo.
 
 ### FFT (Fast Fourier Transform)
 Le formule DFT e IDFT richiedono un __numero di moltiplicazioni__ (e somme) __pari ad N^2__. Infatti sono necessarie N moltiplicazioni per ognuno degli N elementi della n-pla di arrivo. Poiché il tempo di calcolo è praticamente determinato da tali moltiplicazioni, possiamo dire che esso cresce proporzionalmente ad N^2.
