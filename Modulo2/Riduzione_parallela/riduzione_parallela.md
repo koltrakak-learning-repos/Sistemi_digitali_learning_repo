@@ -36,3 +36,9 @@ Anche se non si considera la warp divergence ad ogni passo di riduzione solo una
 ### Soluzioni con divergenza ridotto ma senza sfruttamento di tutti i thread
 ...
 nella versione interleaved non c'è bisogno di calcolare l'index
+
+....
+
+### Con Dynamic parallelism
+...
+guarda bene le sincronizzazioni nella prima versione
