@@ -73,7 +73,7 @@ void IDFT(complex *dft_samples, short *signal_samples, int num_samples_utili) {
 
 
 int main() {
-    const char* FILE_NAME = "piano_chord.wav";
+    const char* FILE_NAME = "StarWars3_44100.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -82,7 +82,7 @@ int main() {
     }
 
     size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
-    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f\n\n", num_samples, (float)num_samples/SAMPLE_RATE);
+    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (float)num_samples/SAMPLE_RATE);
 
     // Allocazione del buffer per i dati audio (PCM a 16 bit)
     short* signal_samples = (short*)malloc(num_samples * sizeof(short));
