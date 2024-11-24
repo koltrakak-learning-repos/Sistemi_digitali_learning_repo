@@ -17,4 +17,4 @@ Come per il caso dello sviluppo in serie, __con i segnali reali__ si possono dar
 L’ integrale di Fourier è l’analogo dello sviluppo in serie in soli coseni; esso rappresenta x(t) come "somma" di infiniti termini sinusoidali, il generico dei quali ha:
 - pulsazione w
 - ampiezza(infinitesima) V(w)dw
-- fase phi(w) .
+- fase phi(w)

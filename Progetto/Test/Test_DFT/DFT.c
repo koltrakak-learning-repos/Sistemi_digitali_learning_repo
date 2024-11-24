@@ -13,14 +13,20 @@ typedef struct {
     double imag;
 } complex;
 
+/*
+    NB: Questa DFT considera un segnale reale, per cui c'è simmetria e non c'è bisogno
+    di calcolare la seconda metà delle componenti della trasformata (q va da 0 a N/2-1)  
+*/
 void DFT(short *signal_samples, complex *dft_samples, int num_samples) {
     /*
-        N === num_samples
-        q === indice componente nella N-upla dalla DFT (N-1 elementi)
+        num_samples === N su N campioni
+        q === indice componente da calcolare nella N-upla dalla DFT (N-1 elementi)
         n === indice del componente corrente della N-upla del segnale considerato nella sommatoria (N-1 elementi)
 
     */
-    for (int q = 0; q < num_samples; q++) {
+    memset(dft_samples, 0, (num_samples/2) * sizeof(complex));
+
+    for (int q = 0; q < num_samples / 2; q++) {
         for (int n = 0; n < num_samples; n++) {
             double phi = (2*PI / num_samples) * q * n ;
             dft_samples[q].real += signal_samples[n] * cos(phi);
@@ -28,6 +34,49 @@ void DFT(short *signal_samples, complex *dft_samples, int num_samples) {
         }
     }
 }
+
+/*
+    NB: Dato che sopra ho considerato la simmetria, qua dovrò ottenere la seconda metà
+    delle componenti della DFT da quelle che ho già 
+*/
+void IDFT(complex *dft_samples, short *signal_samples, int num_samples_utili) {
+    /*
+        num_samples === N/2 su N campioni
+        n === indice componente da calcolare nella N-upla del segnare nel dominio del tempo
+        q === indice componente della N-upla della DFT considerato nella sommatoria
+
+    */
+    int num_samples = num_samples_utili * 2;
+    memset(signal_samples, 0, num_samples*sizeof(short));
+    // variabile di appoggio per evitare overflow
+    long temp;
+
+    for (int n = 0; n < num_samples; n++) {
+        temp = 0;
+
+        for (int q = 0; q < num_samples_utili; q++) {
+            double phi = (2*PI / num_samples) * q * n;
+            // il segnale è reale quindi non considero la parte immaginaria del calcolo
+            // inoltre, recupero i campioni della parte negativa utilizzando la simmetria ( X_q = complesso_coniugato{X_(N-q)} )
+
+            //parte positiva
+            temp += (dft_samples[q].real * cos(phi)) - (dft_samples[q].imag * sin(phi));
+            //parte negativa (N)
+            temp += (dft_samples[q].real * cos(phi)) - (-dft_samples[q].imag * sin(phi));
+
+            if(q%100 == 0) {
+                printf("\tfrequenza numero %d\n\t\tha parte reale: %0.2f;\t\t viene moltiplicata per un coseno pari a :%0.2f\n\t\trisultato: %0.2f\n", q, dft_samples[q].real, cos(phi), dft_samples[q].real * cos(phi));
+            }
+        }
+
+        // if( n%100 == 0) {
+        //     printf("\tcampione numero %d: ha valore non normalizzato: %ld\n", n, temp);
+        // }
+
+        signal_samples[n] = temp / num_samples;
+    }
+}
+
 
 int main() {
     const char* FILE_NAME = "A440.wav";
@@ -46,12 +95,13 @@ int main() {
         fprintf(stderr, "Errore nell'allocazione della memoria.\n");
         return 1;
     }
-    // Allocazione del buffer per i le sinusoidi della DFT
-    complex* dft_samples = (complex*)malloc(num_samples * sizeof(complex));
+    // Allocazione del buffer per le sinusoidi della DFT (N/2)
+    complex* dft_samples = (complex*)malloc( (num_samples/2) * sizeof(complex));
     if (dft_samples == NULL) {
         fprintf(stderr, "Errore nell'allocazione della memoria.\n");
         return 1;
     }
+    memset(dft_samples, 0, (num_samples / 2) * sizeof(complex));
 
     // Lettura dei dati audio dal file di input
     size_t samples_read = drwav_read_pcm_frames_s16(&wav_in, wav_in.totalPCMFrameCount, signal_samples);
@@ -62,7 +112,6 @@ int main() {
 
     drwav_uninit(&wav_in); 
 
-    // calcolo la DFT
     DFT(signal_samples, dft_samples, num_samples);
 
     // Calcola e salvo l'ampiezza per ciascuna frequenza
@@ -72,20 +121,59 @@ int main() {
         return 1;
     }
 
-    for (int i = 0; i < num_samples; i++) {
+    for (int i = 0; i < num_samples/2; i++) {
         double amplitude = sqrt(dft_samples[i].real*dft_samples[i].real + dft_samples[i].imag*dft_samples[i].imag);
         double frequency = (double)i * SAMPLE_RATE / num_samples;
 
         fprintf(output_file, "%lf %lf\n", frequency, amplitude);
 
         if(amplitude > 10000) {
-            printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
+            printf("\tFrequenza: %lf sembra essere un componente utile del segnale\n", frequency);
         }
     }
 
-    printf("I dati dello spettro sono stati scritti in 'spectrum.txt'.\n");
+    printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
+    fclose(output_file);
+
+
+
+    /* --- PARTE IDFT --- */
+
+    
+
+    // inizializzazione dati
+    char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
+    sprintf(generated_filename, "IDFT-generated-%s", FILE_NAME);
+    memset(signal_samples, 0, num_samples*sizeof(short));
+
+    // Preparazione del formato del file di output
+    drwav_data_format format_out;
+    format_out.container = drwav_container_riff;
+    format_out.format = DR_WAVE_FORMAT_PCM;
+    format_out.channels = 1;              // Mono
+    format_out.sampleRate = SAMPLE_RATE;  // Frequenza di campionamento
+    format_out.bitsPerSample = 16;        // 16 bit per campione
+
+    // Inizializzazione del file di output
+    drwav wav_out;
+    if (!drwav_init_file_write(&wav_out, generated_filename, &format_out, NULL)) {
+        fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
+        return 1;
+    }
+
+    IDFT(dft_samples, signal_samples, num_samples/2);
+
+    // Scrittura dei dati audio nel file di output
+    drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
+    drwav_uninit(&wav_out); // Chiusura del file di output
+
+    printf("File WAV con tono A440 creato con successo: %s\n", generated_filename);
+    
+
+
 
     free(signal_samples);
     free(dft_samples);
-    fclose(output_file);
+    
+    return 0;
 }
