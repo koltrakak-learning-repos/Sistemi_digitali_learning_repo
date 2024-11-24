@@ -56,22 +56,16 @@ void IDFT(complex *dft_samples, short *signal_samples, int num_samples_utili) {
 
         for (int q = 0; q < num_samples_utili; q++) {
             double phi = (2*PI / num_samples) * q * n;
+            double phi_simmetrico = (2*PI / num_samples) * (num_samples - q) * n;   // attenzione mi serve anche questo phi
+
             // il segnale è reale quindi non considero la parte immaginaria del calcolo
             // inoltre, recupero i campioni della parte negativa utilizzando la simmetria ( X_q = complesso_coniugato{X_(N-q)} )
 
             //parte positiva
             temp += (dft_samples[q].real * cos(phi)) - (dft_samples[q].imag * sin(phi));
-            //parte negativa (N)
-            temp += (dft_samples[q].real * cos(phi)) - (-dft_samples[q].imag * sin(phi));
-
-            if(q%100 == 0) {
-                printf("\tfrequenza numero %d\n\t\tha parte reale: %0.2f;\t\t viene moltiplicata per un coseno pari a :%0.2f\n\t\trisultato: %0.2f\n", q, dft_samples[q].real, cos(phi), dft_samples[q].real * cos(phi));
-            }
+            //parte negativa
+            temp += (dft_samples[q].real * cos(phi)) + (dft_samples[q].imag * sin(phi_simmetrico));
         }
-
-        // if( n%100 == 0) {
-        //     printf("\tcampione numero %d: ha valore non normalizzato: %ld\n", n, temp);
-        // }
 
         signal_samples[n] = temp / num_samples;
     }
@@ -79,7 +73,7 @@ void IDFT(complex *dft_samples, short *signal_samples, int num_samples_utili) {
 
 
 int main() {
-    const char* FILE_NAME = "A440.wav";
+    const char* FILE_NAME = "piano_chord.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -88,6 +82,7 @@ int main() {
     }
 
     size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
+    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f\n\n", num_samples, (float)num_samples/SAMPLE_RATE);
 
     // Allocazione del buffer per i dati audio (PCM a 16 bit)
     short* signal_samples = (short*)malloc(num_samples * sizeof(short));
@@ -113,6 +108,7 @@ int main() {
     drwav_uninit(&wav_in); 
 
     DFT(signal_samples, dft_samples, num_samples);
+    
 
     // Calcola e salvo l'ampiezza per ciascuna frequenza
     FILE *output_file = fopen("amplitude_spectrum.txt", "w");
@@ -134,8 +130,6 @@ int main() {
 
     printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
     fclose(output_file);
-
-
 
     /* --- PARTE IDFT --- */
 
