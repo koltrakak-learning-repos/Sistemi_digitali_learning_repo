@@ -98,7 +98,6 @@ int main() {
     }
     memset(dft_samples, 0, (num_samples / 2) * sizeof(complex));
 
-    // Lettura dei dati audio dal file di input
     size_t samples_read = drwav_read_pcm_frames_s16(&wav_in, wav_in.totalPCMFrameCount, signal_samples);
     if (samples_read != wav_in.totalPCMFrameCount) {
         fprintf(stderr, "Errore durante la lettura dei dati audio.\n");
@@ -109,7 +108,6 @@ int main() {
 
     DFT(signal_samples, dft_samples, num_samples);
     
-
     // Calcola e salvo l'ampiezza per ciascuna frequenza
     FILE *output_file = fopen("amplitude_spectrum.txt", "w");
     if (output_file == NULL) {
@@ -130,6 +128,8 @@ int main() {
 
     printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
     fclose(output_file);
+
+    
 
     /* --- PARTE IDFT --- */
 
