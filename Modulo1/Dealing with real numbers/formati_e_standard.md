@@ -1,0 +1,1 @@
+![alt text](nan_e_infinity_encoding.png)
