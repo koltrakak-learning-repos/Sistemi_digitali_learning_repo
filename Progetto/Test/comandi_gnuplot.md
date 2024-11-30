@@ -19,7 +19,7 @@
 
     ```
     # Visualizza i dati
-    plot "<nome file con i dati.txt>" using 1:2 with lines title "<nome linea graficata>"
+    plot "amplitude_spectrum.txt" using 1:2 with lines title "ampiezza"
     ```
 
 4. Per ridimensionare gli assi
