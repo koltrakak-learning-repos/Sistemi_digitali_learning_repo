@@ -3,7 +3,8 @@
         "immintrin.h": "c",
         "time.h": "c",
         "stdio.h": "c",
-        "math.h": "c"
+        "math.h": "c",
+        "random": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
