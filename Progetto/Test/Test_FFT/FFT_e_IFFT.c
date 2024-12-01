@@ -122,7 +122,7 @@ void convert_to_short(complex *input, short *output, int n) {
 
 
 int main() {
-    const char* FILE_NAME = "record_out.wav";
+    const char* FILE_NAME = "test_voce.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -131,6 +131,8 @@ int main() {
     }
 
     size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
+    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (float)num_samples/SAMPLE_RATE);
+    getchar();
 
     // importante avere una potenza di 2
     int padded_samples = 1 << (int)ceil(log2(num_samples));
