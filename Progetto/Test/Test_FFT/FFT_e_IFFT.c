@@ -15,13 +15,14 @@ typedef struct {
 
 // Funzione per calcolare la FFT (Radix-2 DIT)
 void fft(complex *x, int n) {
-     // Controllo se n è una potenza di 2
+    // Controllo se n è una potenza di 2
     if ((n & (n - 1)) != 0) {
         fprintf(stderr, "Errore: n (%d) non è una potenza di 2.\n", n);
         exit(1);
     }
 
-    if (n <= 1) return;
+    if (n == 1)
+        return;
 
     // Dividi: separa in componenti pari e dispari
     complex *even = (complex *)malloc(n / 2 * sizeof(complex));
@@ -53,7 +54,8 @@ void fft(complex *x, int n) {
 
         x[k].real = even[k].real + temp.real;
         x[k].imag = even[k].imag + temp.imag;
-        // la secona metà è calcolata grazie alla relazione simmetrica 
+        // la secona metà è calcolata grazie alla relazione simmetrica
+        // (-temp perchè il twiddle della seconda metà ha segno opposto)
         x[k + n / 2].real = even[k].real - temp.real;
         x[k + n / 2].imag = even[k].imag - temp.imag;
     }
