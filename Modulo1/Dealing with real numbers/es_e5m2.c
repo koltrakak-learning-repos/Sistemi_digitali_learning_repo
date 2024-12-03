@@ -35,6 +35,7 @@ float compute_E5M2_value(char* bits) {
         for(int i=0; i<MANTISSA_LENGTH; i++) {
             if(mantissa_bits[i]) {
                 denominatore <<= i+1;
+                // qua c'è dell'errore anche se sto dividendo per una potenza di due
                 result += 1/(float)denominatore;
             }
 
@@ -47,40 +48,65 @@ float compute_E5M2_value(char* bits) {
         return result; 
     }
 
-    // caso standard 
-    result = 1.0;
-    
-    int denominatore = 1;
-    int termine_esponenziale = 0;
 
-    for(int i=0; i<ESPONENTE_LENGTH; i++) {
+
+
+    // caso standard 
+    int denominatore = 1;
+    int esponente = 0;
+    float valore_esponente;
+    result = 1.0; //valore sottinteso
+
+    // qua devo partire dal fondo
+    for(int i=ESPONENTE_LENGTH-1; i>=0; i--) {
         if(exp_bits[i]) {
-            termine_esponenziale += (2 << (ESPONENTE_LENGTH-i+1)); 
+            esponente += (1 << ESPONENTE_LENGTH-(i+1)); 
         }
     }
 
     // polarizziamo l'esponente 
-    termine_esponenziale -= 15;
-    printf("\ttermine_esponenziale: %d\n", termine_esponenziale);
-
+    esponente -= 15;
+    printf("\tesponente: %d\n", esponente);
+    
+    //calcolo il valore corrispondente
+    if(esponente >= 0 ) {
+        valore_esponente = 1<<esponente;
+        printf("\tvalore esponente: %f\n", valore_esponente);
+    }
+    else {
+        int temp = esponente * -1;
+        denominatore <<= temp;   
+        valore_esponente = 1/(float)denominatore;
+        // qua c'è dell'errore anche se sto dividendo per una potenza di due
+        printf("\tvalore esponente: 1/%d = %.014f\n", denominatore, valore_esponente);  
+    }
+    
+    denominatore = 1;
     for(int i=0; i<MANTISSA_LENGTH; i++) {
         if(mantissa_bits[i]) {
             denominatore <<= i+1;
-            result += 1/(float)denominatore * termine_esponenziale;
+            // qua c'è dell'errore anche se sto dividendo per una potenza di due
+            result += 1/(float)denominatore;
         }
 
         denominatore = 1;
     }
+    printf("\tmantissa: %f\n", result);
+
+    result *= valore_esponente;
+    if(sign_bit)
+        result*=-1;
 
     return result; 
 }
 
 int main() {
-    char bits[LENGTH] = {0, 0, 0, 0, 0, 1, 0, 1};
+    char bits[LENGTH] = {1, 0, 0, 0, 0, 1, 1, 0};
+    printf("bits: %d%d%d%d%d%d%d%d\n", bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], bits[6], bits[7]);
 
     float value = compute_E5M2_value(bits);
 
-    printf("bits: %d%d%d%d%d%d%d%d\nnumerical value = %f\n", bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], bits[6], bits[7], value);
+    printf("numerical value = %0.14f\n", value);
 
     return 0;
 }
