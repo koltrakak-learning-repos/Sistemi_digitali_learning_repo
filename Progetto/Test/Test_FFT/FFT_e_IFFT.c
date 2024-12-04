@@ -74,67 +74,49 @@ void fft(complex *x, complex *X, int N) {
     free(trasformata_odd);
 }
 
-void ifft(complex *X, complex *x, int N) {
-    // Controllo se N è una potenza di 2
-    if ((N & (N - 1)) != 0) {
-        fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
-        exit(1);
-    }
-
-    if (N == 1) {
-        // Caso base: copia l'unico elemento
-        X[0].real = x[0].real;
-        X[0].imag = x[0].imag;
-
+// Funzione per calcolare la IFFT
+void ifft_recursive(complex *input, complex *output, int step, int n) {
+    if (n == 1) {
+        output[0] = input[0];
         return;
     }
 
-    complex *signal_even        = (complex *)malloc(N / 2 * sizeof(complex));
-    complex *signal_odd         = (complex *)malloc(N / 2 * sizeof(complex));
-    complex *trasformata_even   = (complex *)malloc(N / 2 * sizeof(complex));
-    complex *trasformata_odd    = (complex *)malloc(N / 2 * sizeof(complex));
-
-    // Separazione dei campioni pari e dispari
-    for (int i = 0; i < N / 2; i++) {
-        signal_even[i] = x[2 * i];
-        signal_odd[i] = x[2 * i + 1];
-    }
-
-    // Ricorsivamente calcola la IFFT per pari e dispari
-    ifft(signal_even, trasformata_even, N/2);
-    ifft(signal_odd, trasformata_odd, N/2);
+    // Calcola la IFFT sui sotto-array pari e dispari
+    ifft_recursive(input, output, step*2, n/2);
+    ifft_recursive(input + step, output + n/2, step*2, n/2); // la parte dispari inizia dopo step celle
 
     // Combina i risultati
-    for (int k = 0; k < N/2; k++) {
-        double phi = (2*PI/N) * k; // Cambia il segno per la IFFT
-
+    for (int k = 0; k < n/2; k++) {
+        double phi = 2*PI*k / n; // Cambia il segno per la IFFT
         complex twiddle = {
             cos(phi),
             sin(phi)
         };
 
-        // temp === prodotto tra twiddle e la trasformata dei dispari (rende più leggibile sotto)
         complex temp = {
-            twiddle.real * trasformata_odd[k].real - twiddle.imag * trasformata_odd[k].imag,
-            twiddle.real * trasformata_odd[k].imag + twiddle.imag * trasformata_odd[k].real
+            twiddle.real * output[k + n/2].real - twiddle.imag * output[k + n/2].imag,
+            twiddle.real * output[k + n/2].imag + twiddle.imag * output[k + n/2].real
         };
 
-        // Combina i risultati nella trasformata finale (anche qua la seconda metà è calcolata per simmetria)
-        X[k].real = trasformata_even[k].real + temp.real;
-        X[k].imag = trasformata_even[k].imag + temp.imag;
-        X[k + N/2].real = trasformata_even[k].real - temp.real;
-        X[k + N/2].imag = trasformata_even[k].imag - temp.imag;
+        complex even = output[k];
+
+        output[k].real = even.real + temp.real;
+        output[k].imag = even.imag + temp.imag;
+        //relazione simmetrica
+        output[k + n/2].real = even.real - temp.real;
+        output[k + n/2].imag = even.imag - temp.imag;
     }
+}
 
-    free(signal_even);
-    free(signal_odd);
-    free(trasformata_even);
-    free(trasformata_odd);
+// Funzione principale per la IFFT
+void ifft(complex *input, complex *output, int n) {
+    ifft_recursive(input, output, 1, n);
 
-    // Normalizza il risultato
-    for (int i = 0; i < N; i++) {
-        X[i].real /= N;
-        X[i].imag /= N;
+    // Non scordarti di normalizzare
+    // NB: è importante che la normalizzazione avvenga soltanto alla fine di tutto
+    for (int i = 0; i < n; i++) {
+        output[i].real /= n;
+        output[i].imag /= n;
     }
 }
 
@@ -236,7 +218,9 @@ int main() {
     // inizializzazione dati
     char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
     sprintf(generated_filename, "IFFT-generated-%s", FILE_NAME);
+    // mi assicuro di non imbrogliare ricopiando i dati di prima
     memset(signal_samples, 0, num_samples*sizeof(short));
+    memset(complex_signal_samples, 0, num_samples);
 
     // Preparazione del formato del file di output
     drwav_data_format format_out;
@@ -252,7 +236,7 @@ int main() {
         fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
         return 1;
     }
-
+    
     ifft(fft_samples, complex_signal_samples, num_samples);
     convert_to_short(complex_signal_samples, signal_samples, num_samples);
 
