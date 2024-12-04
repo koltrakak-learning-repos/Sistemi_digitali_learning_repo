@@ -63,9 +63,9 @@ void fft(complex *x, complex *X, int N) {
         X[k].real = trasformata_even[k].real + temp.real;
         X[k].imag = trasformata_even[k].imag + temp.imag;
         // La seconda metà è calcolata grazie alle relazioni simmetriche dei termini esponenziali
-        // (temp con segno meno perchè il twiddle della seconda metà ha segno opposto)
-        X[k + N / 2].real = trasformata_even[k].real - temp.real;
-        X[k + N / 2].imag = trasformata_even[k].imag - temp.imag;
+        // (temp con segno meno dato che il twiddle della seconda metà ha segno opposto)
+        X[k + N/2].real = trasformata_even[k].real - temp.real;
+        X[k + N/2].imag = trasformata_even[k].imag - temp.imag;
     }
 
     free(signal_even);
