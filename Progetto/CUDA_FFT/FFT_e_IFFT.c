@@ -22,7 +22,8 @@ void fft(complex *x, complex *X, int N) {
     }
 
     if(N == 1) {
-        // Caso base: copia l'unico elemento
+        // Caso base: DFT di un campione è il campione stesso
+        //  -> copia l'unico elemento
         X[0].real = x[0].real;
         X[0].imag = x[0].imag;
 

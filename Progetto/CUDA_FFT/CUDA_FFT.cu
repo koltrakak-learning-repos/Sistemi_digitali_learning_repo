@@ -160,6 +160,94 @@ void convert_to_short(complex *input, short *output, int n) {
 
 /* KERNEL GPU */
 
+__global__ void fft_device_side(complex *x, complex *X, int N) {
+    // Controllo se N è una potenza di 2
+    if((N & (N - 1)) != 0) {
+        fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
+        exit(1);
+    }
+
+    if(N == 1) {
+        // Caso base: copia l'unico elemento
+        X[0].real = x[0].real;
+        X[0].imag = x[0].imag;
+
+        return;
+    }
+
+    complex *signal_even        = (complex *)malloc(N/2 * sizeof(complex));
+    complex *signal_odd         = (complex *)malloc(N/2 * sizeof(complex));
+    complex *trasformata_even   = (complex *)malloc(N/2 * sizeof(complex));
+    complex *trasformata_odd    = (complex *)malloc(N/2 * sizeof(complex));
+
+    /*
+        Ogni frequenza k della trasformata necessita
+        di TUTTI i campioni dello stadio precedente, divisi
+        in campioni pari e dispari. Come faccio a selezionarli 
+        con ogni thread.
+
+        Forse questo lo posso preparare lato CPU 
+        passando alla funzione un array di array
+        indicizzato con il tid???
+    */
+
+    // Separazione dei campioni pari e dispari
+    for(int i = 0; i < N/2; i++) {
+        signal_even[i] = x[2*i];
+        signal_odd[i] = x[2*i + 1];
+    }
+
+    // Ricorsivamente calcola la FFT per pari e dispari
+    fft(signal_even, trasformata_even, N/2);
+    fft(signal_odd, trasformata_odd, N/2);
+
+    /*
+        Qua c'è da sincronizzare per forza dato?
+        La componente k-esima della trasformata ha delle dipendenze 
+        con quelle calcolate dagli altri thread? 
+
+        cuda_device_synchronize();
+    */
+    
+
+
+    /*
+        Qua al posto di un ciclo avrà N/2 thred che mi calcolano le trasformate 
+        dei vari stadi 
+
+        k === tid; o un qualcosa del genere
+    */
+
+    // Combina i risultati
+    for(int k = 0; k < N/2; k++) {
+        double phi = (-2*PI/N) * k;
+        // Calcolo del twiddle factor
+        complex twiddle = {
+            cos(phi),
+            sin(phi)
+        };
+
+        // temp === prodotto tra twiddle e la trasformata dei dispari (rende più leggibile sotto)
+        complex temp = {
+            twiddle.real * trasformata_odd[k].real - twiddle.imag * trasformata_odd[k].imag,
+            twiddle.real * trasformata_odd[k].imag + twiddle.imag * trasformata_odd[k].real
+        };
+
+        // Combina i risultati nella trasformata finale
+        X[k].real = trasformata_even[k].real + temp.real;
+        X[k].imag = trasformata_even[k].imag + temp.imag;
+        // La seconda metà è calcolata grazie alle relazioni simmetriche dei termini esponenziali
+        // (temp con segno meno dato che il twiddle della seconda metà ha segno opposto)
+        X[k + N/2].real = trasformata_even[k].real - temp.real;
+        X[k + N/2].imag = trasformata_even[k].imag - temp.imag;
+    }
+
+    free(signal_even);
+    free(signal_odd);
+    free(trasformata_even);
+    free(trasformata_odd);
+}
+
 
 
 __global__ void sumArrayOnGPU(float *A, float *B, float *C, int N) {
@@ -183,10 +271,15 @@ int main(int argc, char **argv) {
     // Configuration parameters
     const char* FILE_NAME = "test_voce.wav";
     
-    int numThreads = 1024 * 1024;  // Launch 1M threads
-    int threadsPerBlock = 256;     // Use 256 threads per block
+    /*
+        Numero di frequenze da calcolare: N/2
+    */
+    int numThreads = 1024 * 1024;  
+    /*
+        Fai un po' di trial and error, direi di partire con 1024
+    */
+    int threadsPerBlock = 1024;
     int numBlocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
-
 
 
     drwav wav_in;
