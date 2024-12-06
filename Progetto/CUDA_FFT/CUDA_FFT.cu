@@ -190,7 +190,16 @@ __global__ void fft_device_side(complex *x, complex *X, int N) {
 
         return;
     }
-    // array in memoria locale
+
+    /*
+        OCCHIO QUESTO è SBAGLIATO!
+        La memoria locale è privata per ogni thread
+
+        Mi sa che mi tocca allocare dinamicamente con CudaMalloc...
+        (e anche deallocare con CudaFree)
+
+        Posso usare device?
+    */
     complex signal_even[N/2];
     complex signal_odd[N/2];
     complex trasformata_even[N/2];
