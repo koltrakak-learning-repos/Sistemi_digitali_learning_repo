@@ -33,7 +33,11 @@ double cpuSecond() {
 }
 
 
+
+
 /* FUNZIONI HOST */
+
+
 
 
 // Funzione per calcolare la FFT (Radix-2 DIT)
@@ -158,9 +162,21 @@ void convert_to_short(complex *input, short *output, int n) {
 
 
 
+
+
+
 /* KERNEL GPU */
 
+
+
+
+
 __global__ void fft_device_side(complex *x, complex *X, int N) {
+    /*
+        Quando lancio un'altra griglia questo si ripete... è giusto???
+    */
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
     // Controllo se N è una potenza di 2
     if((N & (N - 1)) != 0) {
         fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
@@ -174,13 +190,18 @@ __global__ void fft_device_side(complex *x, complex *X, int N) {
 
         return;
     }
-
-    complex *signal_even        = (complex *)malloc(N/2 * sizeof(complex));
-    complex *signal_odd         = (complex *)malloc(N/2 * sizeof(complex));
-    complex *trasformata_even   = (complex *)malloc(N/2 * sizeof(complex));
-    complex *trasformata_odd    = (complex *)malloc(N/2 * sizeof(complex));
+    // array in memoria locale
+    complex signal_even[N/2];
+    complex signal_odd[N/2];
+    complex trasformata_even[N/2];
+    complex trasformata_odd[N/2];
 
     /*
+        Solamente il primo blocco di ogni stadio lancia un kernel ricorsivo?
+        Sono abbastanza sicuro di si!
+    */
+    if(global_idx == 0) {
+        /*
         Ogni frequenza k della trasformata necessita
         di TUTTI i campioni dello stadio precedente, divisi
         in campioni pari e dispari. Come faccio a selezionarli 
@@ -189,31 +210,34 @@ __global__ void fft_device_side(complex *x, complex *X, int N) {
         Forse questo lo posso preparare lato CPU 
         passando alla funzione un array di array
         indicizzato con il tid???
-    */
+        */
 
-    // Separazione dei campioni pari e dispari
-    for(int i = 0; i < N/2; i++) {
-        signal_even[i] = x[2*i];
-        signal_odd[i] = x[2*i + 1];
+        // Separazione dei campioni pari e dispari
+        for(int i = 0; i < N/2; i++) {
+            signal_even[i] = x[2*i];
+            signal_odd[i] = x[2*i + 1];
+        }
+
+        int threads_per_block = 1024;
+        int num_blocks = (N + threads_per_block-1) / threads_per_block;
+
+        // Ricorsivamente calcola la FFT per pari e dispari
+        fft_device_side<<<num_blocks, threads_per_block>>>(signal_even, trasformata_even, N/2);
+        fft_device_side<<<num_blocks, threads_per_block>>>(signal_odd, trasformata_odd, N/2);
+
+        /*
+            Qua c'è da sincronizzare per forza dato?
+            La componente k-esima della trasformata ha delle dipendenze 
+            con quelle calcolate dagli altri thread? 
+
+            cuda_device_synchronize();
+        */
     }
 
-    // Ricorsivamente calcola la FFT per pari e dispari
-    fft(signal_even, trasformata_even, N/2);
-    fft(signal_odd, trasformata_odd, N/2);
 
     /*
-        Qua c'è da sincronizzare per forza dato?
-        La componente k-esima della trasformata ha delle dipendenze 
-        con quelle calcolate dagli altri thread? 
-
-        cuda_device_synchronize();
-    */
-    
-
-
-    /*
-        Qua al posto di un ciclo avrà N/2 thred che mi calcolano le trasformate 
-        dei vari stadi 
+        Qua al posto di un ciclo avrà N/2 thred che mi calcolano
+        le trasformate dei vari stadi 
 
         k === tid; o un qualcosa del genere
     */
@@ -259,27 +283,29 @@ __global__ void sumArrayOnGPU(float *A, float *B, float *C, int N) {
 
 
 int main(int argc, char **argv) {
-    printf("%s Starting...\n", argv[0]);
-
-    // Set up device
-    int dev = 0;
-    cudaDeviceProp deviceProp;
-    CHECK(cudaGetDeviceProperties(&deviceProp, dev));
-    printf("Using Device %d: %s\n", dev, deviceProp.name);
-    CHECK(cudaSetDevice(dev));
-
     // Configuration parameters
     const char* FILE_NAME = "test_voce.wav";
     
-    /*
-        Numero di frequenze da calcolare: N/2
-    */
-    int numThreads = 1024 * 1024;  
-    /*
-        Fai un po' di trial and error, direi di partire con 1024
-    */
-    int threadsPerBlock = 1024;
-    int numBlocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
+    printf("%s Starting...\n", argv[0]);
+
+
+
+
+
+
+
+
+
+    /* ESECUZIONE SOLO LATO HOST */
+    /* TODO: refactor in una funzione a parte */
+
+
+
+
+
+
+
+
 
 
     drwav wav_in;
@@ -326,9 +352,6 @@ int main(int argc, char **argv) {
     }
 
     drwav_uninit(&wav_in);
-    
- 
-
 
     // calcolo la FFT
     convert_to_complex(signal_samples, complex_signal_samples, num_samples);
@@ -358,10 +381,7 @@ int main(int argc, char **argv) {
     printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
     fclose(output_file);
 
-
-     /* --- PARTE IFFT --- */
-
-    
+    /* --- PARTE IFFT --- */
 
     // inizializzazione dati
     char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
@@ -404,6 +424,35 @@ int main(int argc, char **argv) {
 
 
 
+
+    /* ESECUZIONE CON GPU */
+    /* TODO: refactor in una funzione a parte */
+
+
+
+
+
+
+    printf("Vuoi rifare con la GPU?\n");
+    getchar();
+
+    // Set up device
+    int dev = 0;
+    cudaDeviceProp deviceProp;
+    CHECK(cudaGetDeviceProperties(&deviceProp, dev));
+    printf("Using Device %d: %s\n", dev, deviceProp.name);
+    CHECK(cudaSetDevice(dev));
+
+    
+    /*
+        Numero di frequenze da calcolare: N/2
+    */
+    int numThreads = num_samples;  
+    /*
+        Fai un po' di trial and error, direi di partire con 1024
+    */
+    int threadsPerBlock = 1024;
+    int numBlocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
 
     // // Alloca memoria per i campioni sul device
     // short* device_signal_samples;
