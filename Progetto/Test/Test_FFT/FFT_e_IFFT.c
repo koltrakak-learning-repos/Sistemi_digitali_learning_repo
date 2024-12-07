@@ -83,8 +83,10 @@ typedef struct {
 
 
 
-
-void fft__inplace_recursive(complex *input, complex *output, int step, int N) {
+/*
+    - `step` indica la distanza tra due campioni SUCCESSIVI che stiamo considerando ad un determinato stadio.
+*/
+void fft_inplace_recursive(complex *input, complex *output, int step, int N) {
     if (N == 1) {
         // Caso base: La DFT di un solo campione
         // è uguale al campione stesso.
@@ -97,9 +99,14 @@ void fft__inplace_recursive(complex *input, complex *output, int step, int N) {
     /*
         NB: Occhio all'input e all'output della parte dispari
         - la parte dispari inizia dopo step celle
+        - le componenti della trasformata dispari iniziano 
+          nella seconda metà dell'output (guarda diagramma a farfalla) 
+
+        A vederlo ad occhio è difficile ma se fai i passaggi su un foglio
+        salta fuori il bit reversal order
     */ 
-    fft__inplace_recursive(input, output, step*2, N/2);
-    fft__inplace_recursive(input + step, output + N/2, step*2, N/2);
+    fft_inplace_recursive(input, output, step*2, N/2);                 // campioni pari
+    fft_inplace_recursive(input + step, output + N/2, step*2, N/2);    // campioni dispari
 
     // Combina i risultati delle due FFT dello stadio precedente per
     // ottenere quella dello stadio corrente
@@ -111,8 +118,15 @@ void fft__inplace_recursive(complex *input, complex *output, int step, int N) {
         };
 
         complex even = output[k];
-        // temp = prodotto algebrico tra campioni della trasformata odd e twiddle factor 
-        // ho usato una variabile d'appoggio per rendere più leggibile sotto
+
+        /*
+            temp = prodotto algebrico tra campioni della trasformata odd e twiddle factor 
+            ho usato una variabile d'appoggio per rendere più leggibile sotto
+
+            Da quanto detto sopra, abbiamo che output[k...N/2-1] sono le componenti della 
+            trasformata pari, mentre output[N/2...N-1] sono le componenti della trasformata
+            dispari. Di nuovo guarda diagramma a farfalla. 
+        */
         complex temp = {
             twiddle.real * output[k + N/2].real - twiddle.imag * output[k + N/2].imag,
             twiddle.real * output[k + N/2].imag + twiddle.imag * output[k + N/2].real
@@ -133,7 +147,7 @@ void fft_inplace(complex *input, complex *output, int N) {
         exit(1);
     }
 
-    fft__inplace_recursive(input, output, 1, N);
+    fft_inplace_recursive(input, output, 1, N);
 }
 
 
