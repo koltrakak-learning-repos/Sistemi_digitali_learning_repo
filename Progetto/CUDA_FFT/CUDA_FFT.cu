@@ -200,10 +200,16 @@ __global__ void fft_device_side(complex *x, complex *X, int N) {
 
         Posso usare device?
     */
+    
     complex signal_even[N/2];
     complex signal_odd[N/2];
     complex trasformata_even[N/2];
     complex trasformata_odd[N/2];
+
+    cudaMalloc((void**)&signal_even, N/2*sizeof(complex));
+    cudaMalloc((void**)&signal_odd, N/2*sizeof(complex));
+    cudaMalloc((void**)&trasformata_even, N/2*sizeof(complex));
+    cudaMalloc((void**)&trasformata_odd, N/2*sizeof(complex));
 
     /*
         Solamente il primo blocco di ogni stadio lancia un kernel ricorsivo?
