@@ -13,129 +13,192 @@ typedef struct {
     double imag;
 } complex;
 
-// Funzione per calcolare la FFT (Radix-2 DIT)
-void fft(complex *x, complex *X, int N) {
-    // Controllo se N è una potenza di 2
-    if((N & (N - 1)) != 0) {
-        fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
-        exit(1);
-    }
+/*
+    Versione naive
+*/
 
-    if(N == 1) {
-        // Caso base: copia l'unico elemento
-        X[0].real = x[0].real;
-        X[0].imag = x[0].imag;
+// // Funzione per calcolare la FFT (Radix-2 DIT)
+// void fft(complex *x, complex *X, int N) {
+//     // Controllo se N è una potenza di 2
+//     if((N & (N - 1)) != 0) {
+//         fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
+//         exit(1);
+//     }
 
-        return;
-    }
+//     if(N == 1) {
+//         // Caso base: copia l'unico elemento
+//         X[0].real = x[0].real;
+//         X[0].imag = x[0].imag;
 
-    complex *signal_even        = (complex *)malloc(N/2 * sizeof(complex));
-    complex *signal_odd         = (complex *)malloc(N/2 * sizeof(complex));
-    complex *trasformata_even   = (complex *)malloc(N/2 * sizeof(complex));
-    complex *trasformata_odd    = (complex *)malloc(N/2 * sizeof(complex));
+//         return;
+//     }
 
-    // Separazione dei campioni pari e dispari
-    for(int i = 0; i < N/2; i++) {
-        signal_even[i] = x[2*i];
-        signal_odd[i] = x[2*i + 1];
-    }
+//     complex *signal_even        = (complex *)malloc(N/2 * sizeof(complex));
+//     complex *signal_odd         = (complex *)malloc(N/2 * sizeof(complex));
+//     complex *trasformata_even   = (complex *)malloc(N/2 * sizeof(complex));
+//     complex *trasformata_odd    = (complex *)malloc(N/2 * sizeof(complex));
 
-    // Ricorsivamente calcola la FFT per pari e dispari
-    fft(signal_even, trasformata_even, N/2);
-    fft(signal_odd, trasformata_odd, N/2);
+//     // Separazione dei campioni pari e dispari
+//     for(int i = 0; i < N/2; i++) {
+//         signal_even[i] = x[2*i];
+//         signal_odd[i] = x[2*i + 1];
+//     }
 
-    // Combina i risultati
-    for(int k = 0; k < N/2; k++) {
-        double phi = (-2*PI/N) * k;
-        // Calcolo del twiddle factor
-        complex twiddle = {
-            cos(phi),
-            sin(phi)
-        };
+//     // Ricorsivamente calcola la FFT per pari e dispari
+//     fft(signal_even, trasformata_even, N/2);
+//     fft(signal_odd, trasformata_odd, N/2);
 
-        // temp === prodotto tra twiddle e la trasformata dei dispari (rende più leggibile sotto)
-        complex temp = {
-            twiddle.real * trasformata_odd[k].real - twiddle.imag * trasformata_odd[k].imag,
-            twiddle.real * trasformata_odd[k].imag + twiddle.imag * trasformata_odd[k].real
-        };
+//     // Combina i risultati
+//     for(int k = 0; k < N/2; k++) {
+//         double phi = (-2*PI/N) * k;
+//         // Calcolo del twiddle factor
+//         complex twiddle = {
+//             cos(phi),
+//             sin(phi)
+//         };
 
-        // Combina i risultati nella trasformata finale
-        X[k].real = trasformata_even[k].real + temp.real;
-        X[k].imag = trasformata_even[k].imag + temp.imag;
-        // La seconda metà è calcolata grazie alle relazioni simmetriche dei termini esponenziali
-        // (temp con segno meno dato che il twiddle della seconda metà ha segno opposto)
-        X[k + N/2].real = trasformata_even[k].real - temp.real;
-        X[k + N/2].imag = trasformata_even[k].imag - temp.imag;
-    }
+//         // temp === prodotto tra twiddle e la trasformata dei dispari (rende più leggibile sotto)
+//         complex temp = {
+//             twiddle.real * trasformata_odd[k].real - twiddle.imag * trasformata_odd[k].imag,
+//             twiddle.real * trasformata_odd[k].imag + twiddle.imag * trasformata_odd[k].real
+//         };
 
-    free(signal_even);
-    free(signal_odd);
-    free(trasformata_even);
-    free(trasformata_odd);
-}
+//         // Combina i risultati nella trasformata finale
+//         X[k].real = trasformata_even[k].real + temp.real;
+//         X[k].imag = trasformata_even[k].imag + temp.imag;
+//         // La seconda metà è calcolata grazie alle relazioni simmetriche dei termini esponenziali
+//         // (temp con segno meno dato che il twiddle della seconda metà ha segno opposto)
+//         X[k + N/2].real = trasformata_even[k].real - temp.real;
+//         X[k + N/2].imag = trasformata_even[k].imag - temp.imag;
+//     }
 
-// Funzione per calcolare la IFFT
-void ifft_recursive(complex *input, complex *output, int step, int n) {
-    if (n == 1) {
+//     free(signal_even);
+//     free(signal_odd);
+//     free(trasformata_even);
+//     free(trasformata_odd);
+// }
+
+
+
+
+
+
+
+void fft__inplace_recursive(complex *input, complex *output, int step, int N) {
+    if (N == 1) {
+        // Caso base: La DFT di un solo campione
+        // è uguale al campione stesso.
+        //  -> copia direttamente l'input nell'output
         output[0] = input[0];
         return;
     }
 
     // Calcola la IFFT sui sotto-array pari e dispari
-    ifft_recursive(input, output, step*2, n/2);
-    ifft_recursive(input + step, output + n/2, step*2, n/2); // la parte dispari inizia dopo step celle
+    /*
+        NB: Occhio all'input e all'output della parte dispari
+        - la parte dispari inizia dopo step celle
+    */ 
+    fft__inplace_recursive(input, output, step*2, N/2);
+    fft__inplace_recursive(input + step, output + N/2, step*2, N/2);
 
-    // Combina i risultati
-    for (int k = 0; k < n/2; k++) {
-        double phi = 2*PI*k / n; // Cambia il segno per la IFFT
+    // Combina i risultati delle due FFT dello stadio precedente per
+    // ottenere quella dello stadio corrente
+    for (int k = 0; k < N/2; k++) {
+        double phi = (-2*PI/N) * k; // Segno negativo per la FFT
         complex twiddle = {
             cos(phi),
             sin(phi)
         };
 
+        complex even = output[k];
+        // temp = prodotto algebrico tra campioni della trasformata odd e twiddle factor 
+        // ho usato una variabile d'appoggio per rendere più leggibile sotto
         complex temp = {
-            twiddle.real * output[k + n/2].real - twiddle.imag * output[k + n/2].imag,
-            twiddle.real * output[k + n/2].imag + twiddle.imag * output[k + n/2].real
+            twiddle.real * output[k + N/2].real - twiddle.imag * output[k + N/2].imag,
+            twiddle.real * output[k + N/2].imag + twiddle.imag * output[k + N/2].real
+        };
+
+        output[k].real = even.real + temp.real;
+        output[k].imag = even.imag + temp.imag;
+        // seconda metà delle frequenza ottenuta per simmetria
+        output[k + N/2].real = even.real - temp.real;
+        output[k + N/2].imag = even.imag - temp.imag;
+    }
+}
+
+void fft_inplace(complex *input, complex *output, int N) {
+    // Controllo se N è una potenza di 2
+    if ((N & (N - 1)) != 0) {
+        fprintf(stderr, "Errore: N (%d) non è una potenza di 2.\n", N);
+        exit(1);
+    }
+
+    fft__inplace_recursive(input, output, 1, N);
+}
+
+
+
+// NB: nota come si praticamente uguale alla fft se non per il segno + dei twiddle 
+void ifft_inplace_recursive(complex *input, complex *output, int step, int N) {
+    if (N == 1) {
+        output[0] = input[0];
+        return;
+    }
+
+    // Calcola la IFFT sui sotto-array pari e dispari
+    ifft_inplace_recursive(input, output, step*2, N/2);
+    ifft_inplace_recursive(input + step, output + N/2, step*2, N/2); 
+
+    // Combina i risultati
+    for (int k = 0; k < N/2; k++) {
+        double phi = 2*PI*k / N; // Cambia il segno per la IFFT
+        complex twiddle = {
+            cos(phi),
+            sin(phi)
         };
 
         complex even = output[k];
 
+        complex temp = {
+            twiddle.real * output[k + N/2].real - twiddle.imag * output[k + N/2].imag,
+            twiddle.real * output[k + N/2].imag + twiddle.imag * output[k + N/2].real
+        };
+
         output[k].real = even.real + temp.real;
         output[k].imag = even.imag + temp.imag;
         //relazione simmetrica
-        output[k + n/2].real = even.real - temp.real;
-        output[k + n/2].imag = even.imag - temp.imag;
+        output[k + N/2].real = even.real - temp.real;
+        output[k + N/2].imag = even.imag - temp.imag;
     }
 }
 
-// Funzione principale per la IFFT
-void ifft(complex *input, complex *output, int n) {
-    ifft_recursive(input, output, 1, n);
+void ifft_inplace(complex *input, complex *output, int N) {
+    ifft_inplace_recursive(input, output, 1, N);
 
     // Non scordarti di normalizzare
-    // NB: è importante che la normalizzazione avvenga soltanto alla fine di tutto
-    for (int i = 0; i < n; i++) {
-        output[i].real /= n;
-        output[i].imag /= n;
+    // NB: a quanto pare è importante che la normalizzazione avvenga soltanto alla fine di tutto
+    for (int i = 0; i < N; i++) {
+        output[i].real /= N;
+        output[i].imag /= N;
     }
 }
 
-void convert_to_complex(short *input, complex *output, int n) {
-    for (int i = 0; i < n; i++) {
+void convert_to_complex(short *input, complex *output, int N) {
+    for (int i = 0; i < N; i++) {
         output[i].real = (double)input[i];
         output[i].imag = 0.0;
     }
 }
 
-void convert_to_short(complex *input, short *output, int n) {
-    for (int i = 0; i < n; i++) {
-        output[i] = (short)round(input[i].real); // Arrotonda la parte reale e converte in short
+void convert_to_short(complex *input, short *output, int N) {
+    for (int i = 0; i < N; i++) {
+        output[i] = (short)round(input[i].real); 
     }
 }
 
 
 int main() {
-    const char* FILE_NAME = "test_voce.wav";
+    const char* FILE_NAME = "StarWars3_44100.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -185,7 +248,7 @@ int main() {
 
     // calcolo la FFT
     convert_to_complex(signal_samples, complex_signal_samples, num_samples);
-    fft(complex_signal_samples, fft_samples, num_samples);
+    fft_inplace(complex_signal_samples, fft_samples, num_samples);
 
     // Calcola e salvo l'ampiezza per ciascuna frequenza
     FILE *output_file = fopen("amplitude_spectrum.txt", "w");
@@ -237,7 +300,7 @@ int main() {
         return 1;
     }
     
-    ifft(fft_samples, complex_signal_samples, num_samples);
+    ifft_inplace(fft_samples, complex_signal_samples, num_samples);
     convert_to_short(complex_signal_samples, signal_samples, num_samples);
 
     // Scrittura dei dati audio nel file di output
