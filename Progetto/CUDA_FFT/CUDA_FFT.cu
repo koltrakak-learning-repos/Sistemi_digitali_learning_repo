@@ -222,12 +222,16 @@ __global__ void fft_device_side(complex *input, complex *output, int step, int N
         /*
             Lancio due kernel da N/2 thread
         */
+
+        // OCCHIO: quando i thread diventano meno di 1024, questo è sbagliato
         int threads_per_block = 1024;
         int num_blocks = (num_threads + threads_per_block-1) / threads_per_block;
 
         fft_device_side<<<num_blocks, threads_per_block>>>(input, output, step*2, N/2);
         fft_device_side<<<num_blocks, threads_per_block>>>(input + step, output + N/2, step*2, N/2);
 
+        if(step <= 32)
+            printf("\t -------------------- %d\n", step);
         /*
             Qua c'è da sincronizzare per forza?
             La componente k-esima della trasformata ha delle dipendenze 
@@ -268,10 +272,6 @@ __global__ void fft_device_side(complex *input, complex *output, int step, int N
 
 
 
-__global__ void sumArrayOnGPU(float *A, float *B, float *C, int N) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N) C[i] = A[i] + B[i];
-}
 
 
 
