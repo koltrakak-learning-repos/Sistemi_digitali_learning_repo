@@ -252,8 +252,8 @@ int main() {
     }
 
     // Lettura dei dati audio dal file di input
-    size_t samples_read = drwav_read_pcm_frames_s16(&wav_in, wav_in.totalPCMFrameCount, signal_samples);
-    if (samples_read != wav_in.totalPCMFrameCount) {
+    size_t frames_read = drwav_read_pcm_frames_s16(&wav_in, wav_in.totalPCMFrameCount, signal_samples);
+    if (frames_read != wav_in.totalPCMFrameCount) {
         fprintf(stderr, "Errore durante la lettura dei dati audio.\n");
         return 1;
     }
