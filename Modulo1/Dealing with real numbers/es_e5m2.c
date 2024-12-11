@@ -101,7 +101,7 @@ float compute_E5M2_value(char* bits) {
 }
 
 int main() {
-    char bits[LENGTH] = {1, 0, 0, 0, 0, 1, 1, 0};
+    char bits[LENGTH] = {1, 1, 1, 1, 0, 1, 0, 1};
     printf("bits: %d%d%d%d%d%d%d%d\n", bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], bits[6], bits[7]);
 
     float value = compute_E5M2_value(bits);
