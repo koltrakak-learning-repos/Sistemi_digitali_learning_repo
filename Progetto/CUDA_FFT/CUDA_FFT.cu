@@ -198,31 +198,27 @@ __global__ void fft_device_side(complex *input, complex *output, int step, int N
         Penso di si, è un sostituto di k
     */
     int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
     // Grazie alla simmetria della DFT, per calcolare N campioni della trasformata 
     // ho bisogno di soli N/2 thread
     int num_threads = N/2;  
 
     // controllo superfluo ma ce lo metto per sicurezza
     if(global_idx < num_threads) {
+        // printf("\t -------------------- hello i'm %d\n", global_idx);
         if (N == 1) {
             output[0] = input[0];
 
             return;
         }
 
-        /*
-            Solamente il primo blocco di ogni stadio lancia un kernel ricorsivo?
-            Sono abbastanza sicuro di si!
-        */
         if(global_idx == 0) {
             /*
+                Lancio due kernel da N/2 thread
+
                 Ogni campione k della trasformata necessita
                 di TUTTI i campioni dello stadio precedente, divisi
                 in campioni pari e dispari. 
-            */
-
-            /*
-                Lancio due kernel da N/2 thread
             */
 
             // OCCHIO: quando i thread diventano meno di 1024
@@ -231,27 +227,17 @@ __global__ void fft_device_side(complex *input, complex *output, int step, int N
 
             fft_device_side<<<num_blocks, threads_per_block>>>(input, output, step*2, N/2);
             fft_device_side<<<num_blocks, threads_per_block>>>(input + step, output + N/2, step*2, N/2);
-
-            if(step <= 32)
-                printf("\t -------------------- %d\n", step);
-            /*
-                Qua c'è da sincronizzare per forza?
-                La componente k-esima della trasformata ha delle dipendenze 
-                con quelle calcolate dagli altri thread? 
-                Devo sincronizzare anche prima?
-
-                Occhio che a quanto pare è deprecata, usare: -D CUDA_FORCE_CDP1_IF_SUPPORTED 
-            */
+            
+            // Occhio che a quanto pare è deprecata, usare: -D CUDA_FORCE_CDP1_IF_SUPPORTED 
             cudaDeviceSynchronize();
         }
-        __syncthreads();
+        // __syncthreads();
 
 
         // Combina i risultati
         
-        // Calcolo del twiddle factor
-        // NB: Qua sto ripetendo il calcolo del twiddle molte volte
-        // forse posso risparmiarmi queste ripetizioni con la memoria confivisa?
+        // NB: sto ripetendo il calcolo del twiddle factor molte volte
+        // forse posso risparmiarmi queste ripetizioni con la memoria condivisa?
         double phi = (-2*PI/N) * global_idx;  // Segno negativo per la FFT     
         complex twiddle = {
             cos(phi),
@@ -355,7 +341,7 @@ int main(int argc, char **argv) {
         fprintf(output_file, "%lf %lf\n", frequency, amplitude);
 
         if(amplitude > 1000000) {
-            printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
+            // printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
         }
     }
 
@@ -413,11 +399,11 @@ int main(int argc, char **argv) {
         Fai un po' di trial and error con threads_per_block
     */
     int num_threads = num_samples/2;  
-    int threads_per_block = 1024;
+    int threads_per_block = 512;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block; // dato che num_threads è una potenza di due, questo è superfluo
 
     start = cpuSecond();
-    fft_device_side<<<num_blocks, threads_per_block>>>(device_complex_signal_samples, device_fft_samples, num_samples, 1);
+    fft_device_side<<<num_blocks, threads_per_block>>>(device_complex_signal_samples, device_fft_samples, 1, num_samples);
     CHECK(cudaDeviceSynchronize());
     double elapsed_device  = cpuSecond() - start;
 
