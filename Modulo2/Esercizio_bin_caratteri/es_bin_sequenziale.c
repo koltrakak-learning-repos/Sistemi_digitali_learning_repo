@@ -29,28 +29,28 @@ void categorize_in_chuncks(FILE* input_file, int chunk_dim, int* output) {
             fprintf(stderr, "questo non dovrebbe essere successo\n");
             exit(1);
         }
-
+        
         cur_letti++;
 
-        if( 'a' <= buffer <= 'd' ) {
+        if( 'a' <= buffer && buffer <= 'd' ) {
             output[0]++;
         }
-        else if( 'e' <= buffer <= 'h' ) {
+        else if( 'e' <= buffer && buffer <= 'h' ) {
             output[1]++;
         }
-        else if( 'i' <= buffer <= 'l' ) {
+        else if( 'i' <= buffer && buffer <= 'l' ) {
             output[2]++;
         }
-        else if( 'm' <= buffer <= 'p' ) {
+        else if( 'm' <= buffer && buffer <= 'p' ) {
             output[3]++;
         }
-        else if( 'q' <= buffer <= 't' ) {
+        else if( 'q' <= buffer && buffer <= 't' ) {
             output[4]++;
         }
-        else if( 'u' <= buffer <= 'x' ) {
+        else if( 'u' <= buffer && buffer <= 'x' ) {
             output[5]++;
         }
-        else if( 'y' <= buffer <= 'z' ) {
+        else if( 'y' <= buffer && buffer <= 'z' ) {
             output[6]++;
         }
         else{
@@ -81,7 +81,7 @@ int main() {
 
 
     // Stampare la dimensione del file
-    printf("La dimensione del file %s è: %ld byte\n", FILENAME, dimensione_file);
+    printf("La dimensione del file %s è: %d byte\n", FILENAME, dimensione_file);
     print_bins(bins);
 
     return 0;
