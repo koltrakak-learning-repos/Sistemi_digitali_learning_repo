@@ -14,7 +14,7 @@ typedef struct {
 } complex;
 
 /*
-    NB: Questa DFT considera un segnale reale, per cui c'è simmetria e non c'è bisogno
+    NB: Questa DFT considera un segnale reale; inoltre per la simmetria e non c'è bisogno
     di calcolare la seconda metà delle componenti della trasformata (q va da 0 a N/2-1)  
 */
 void DFT(short *signal_samples, complex *dft_samples, int num_samples) {

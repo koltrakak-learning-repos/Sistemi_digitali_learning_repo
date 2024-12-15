@@ -107,6 +107,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
 
         // Itera sull'array di output con passi pari a N_stadio_corrente
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
+            // parto sempre da k=0 -> twiddle^0 fa quindi uno 
             complex twiddle_factor = {1, 0};
 
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
