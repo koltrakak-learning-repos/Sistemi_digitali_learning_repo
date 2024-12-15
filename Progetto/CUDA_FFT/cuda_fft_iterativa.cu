@@ -7,16 +7,26 @@
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
 
-
 #define SAMPLE_RATE 44100
 #define PI 3.14159265358979323846
+
+#define CHECK(call) \
+{ \
+    const cudaError_t error = call; \
+    if (error != cudaSuccess) \
+    { \
+        printf("Error: %s:%d, ", __FILE__, __LINE__); \
+        printf("code: %d, reason: %s\n", error, cudaGetErrorString(error)); \
+        exit(1); \
+    } \
+}
 
 typedef struct {
     double real;
     double imag;
 } complex;
 
-complex prodotto_tra_complessi(complex a, complex b) {
+__host__ __device__ complex prodotto_tra_complessi(complex a, complex b) {
     complex result;
 
     result.real = a.real*b.real - a.imag*b.imag;
@@ -24,6 +34,33 @@ complex prodotto_tra_complessi(complex a, complex b) {
 
     return result;
 }
+
+double cpuSecond() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return ((double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9);
+}
+
+void checkResult(complex *hostRef, complex *gpuRef, const int N) {
+    // epsilon molto largo. Non so perchè la versione GPU differisce rispetto a quella CPU verso la quinta cifra decimale
+    double epsilon = 1.0E-4;    
+    bool match = 1;
+
+    for (int i = 0; i < N; i++) {
+        if (fabs(hostRef[i].real - gpuRef[i].real) > epsilon || fabs(hostRef[i].imag - gpuRef[i].imag) > epsilon) {
+            match = 0;
+            printf("Arrays do not match!\n");
+            printf("host (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
+            break;
+        }
+    }
+
+    if (match)
+        printf("Arrays match.\n\n");
+}
+
+
+
 
 // Funzione strana che ho trovato, che mi permette di ottenere il bit reverse order degli indici
 // dei campioni della trasformata  in maniera efficiente O(log n).
@@ -121,15 +158,22 @@ int fft_iterativa(complex *input, complex *output, int N) {
 
 // Kernel per calcolare le "farfalle"
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
-    int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
-    if (thread_id >= N / 2) return;
+    // controllo se ci sono dei thread in eccesso
+    if (thread_id >= N/2) {
+        printf("\tsono un thread in eccesso\n");
+        return;
+    }
 
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
     int j = thread_id % N_stadio_corrente_mezzi;
 
-    double phi = -2.0 * M_PI * j / N_stadio_corrente;
-    complex twiddle_factor = {cos(phi), sin(phi)};
+    double phi = (-2.0*PI/N_stadio_corrente) * j;
+    complex twiddle_factor = {
+        cos(phi),
+        sin(phi)
+    };
 
     complex a = output[k + j];
     complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
@@ -142,50 +186,58 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 }
 
 // Funzione principale FFT su GPU
-void fft_iterativa_cuda(complex *input, complex *output, int N) {
+double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // Controllo che N sia una potenza di 2
     if (N & (N - 1)) {
         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
-        return;
+        return -1;
     }
 
     int num_stadi = (int)log2f((float)N);
 
     // Alloca memoria sulla GPU
-    complex *d_output;
-    cudaMalloc((void **)&d_output, N * sizeof(complex));
-
-    // Copia input nell'output (con bit-reversal)
     complex *d_input;
-    cudaMalloc((void **)&d_input, N * sizeof(complex));
-    cudaMemcpy(d_input, input, N * sizeof(complex), cudaMemcpyHostToDevice);
+    complex *d_output;
+    cudaMalloc(&d_output, N*sizeof(complex));
+    cudaMalloc(&d_input, N*sizeof(complex));
+    cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
 
+
+    // Copia input nell'output con bit-reversal (stadio 0)
     for (int i = 0; i < N; i++) {
-        uint32_t rev = reverse_bits(i) >> (32 - num_stadi);
-        cudaMemcpy(&d_output[rev], &d_input[i], sizeof(complex), cudaMemcpyDeviceToDevice);
-    }
+        uint32_t rev = reverse_bits(i);
+        rev = rev >> (32 - num_stadi);
 
-    cudaFree(d_input);
+        output[i] = input[rev];
+    }
+    cudaMemcpy(d_output, output, N*sizeof(complex), cudaMemcpyHostToDevice);
 
     // Configurazione dei blocchi e dei thread
     int threads_per_block = 256;
-    int num_threads = N / 2;
+    int num_threads = N/2;  // per calcolare N campioni della trasformata ho bisogno di soli N/2 thread data la simmetria
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
+    /*
+        Ottimizzazione: spostare questo dentro in modo da avere meno trasferimenti e meno sincornizzazioni
+    */
     // Lancia i kernel per ogni stadio
+    double start = cpuSecond();
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
-        int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
+        int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
         fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
         cudaDeviceSynchronize();
     }
+    double elapsed_device  = cpuSecond() - start;
+    
 
-    // Copia il risultato indietro sulla CPU
-    cudaMemcpy(output, d_output, N * sizeof(complex), cudaMemcpyDeviceToHost);
-
-    // Libera memoria
+    cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
+    
+    cudaFree(d_input);
     cudaFree(d_output);
+
+    return elapsed_device;
 }
 
 
@@ -257,19 +309,22 @@ int main() {
         num_samples = padded_samples;
     }
 
-    // Allocazione del buffer per i dati audio (PCM a 16 bit)
+    /*
+        Alloco memoria per:
+            - campioni PCM a 16 bit del file di ingresso
+            - campioni PCM a 16 bit del file di ingresso convertiti in numeri complessi
+            - campioni della trasformata ottenuti con FFT
+    */
     short* signal_samples = (short*)malloc(num_samples * sizeof(short));
     if (signal_samples == NULL) {
         fprintf(stderr, "Errore nell'allocazione della memoria.\n");
         return 1;
     }
-    // Allocazione del buffer per i dati audio (PCM a 16 bit) convertiti in numeri complessi
     complex* complex_signal_samples = (complex*)malloc(num_samples * sizeof(complex));
     if (complex_signal_samples == NULL) {
         fprintf(stderr, "Errore nell'allocazione della memoria.\n");
         return 1;
     }
-    // Allocazione del buffer per le sinusoidi della FFT
     complex* fft_samples = (complex*)malloc(num_samples * sizeof(complex));
     if (fft_samples == NULL) {
         fprintf(stderr, "Errore nell'allocazione della memoria.\n");
@@ -282,33 +337,82 @@ int main() {
         fprintf(stderr, "Errore durante la lettura dei dati audio.\n");
         return 1;
     }
-
     drwav_uninit(&wav_in); 
 
     // calcolo la FFT
     convert_to_complex(signal_samples, complex_signal_samples, num_samples);
+    double start = cpuSecond();
     fft_iterativa(complex_signal_samples, fft_samples, num_samples);
+    double elapsed_host = cpuSecond() - start;
 
-    // Calcola e salvo l'ampiezza per ciascuna frequenza
-    FILE *output_file = fopen("amplitude_spectrum.txt", "w");
-    if (output_file == NULL) {
-        fprintf(stderr, "Errore nell'aprire il file di output.\n");
-        return 1;
-    }
 
-    for (int i = 0; i < num_samples; i++) {
-        double amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
-        double frequency = (double)i * SAMPLE_RATE / num_samples;
 
-        fprintf(output_file, "%lf %lf\n", frequency, amplitude);
+    // // Calcola e salvo l'ampiezza per ciascuna frequenza
+    // FILE *output_file = fopen("amplitude_spectrum.txt", "w");
+    // if (output_file == NULL) {
+    //     fprintf(stderr, "Errore nell'aprire il file di output.\n");
+    //     return 1;
+    // }
 
-        if(amplitude > 1000000) {
-            printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
-        }
-    }
+    // for (int i = 0; i < num_samples; i++) {
+    //     double amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
+    //     double frequency = (double)i * SAMPLE_RATE / num_samples;
 
-    printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
-    fclose(output_file);
+    //     fprintf(output_file, "%lf %lf\n", frequency, amplitude);
+
+    //     if(amplitude > 1000000) {
+    //         printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
+    //     }
+    // }
+
+    // printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
+    // fclose(output_file);
+
+
+
+
+
+
+
+    /* ESECUZIONE CON GPU */
+
+
+
+
+
+
+
+
+
+
+
+    // Set up device
+    int dev = 0;
+    cudaDeviceProp deviceProp;
+    CHECK(cudaGetDeviceProperties(&deviceProp, dev));
+    printf("Using Device %d: %s\n", dev, deviceProp.name);
+    CHECK(cudaSetDevice(dev));
+
+    // Copy kernel result back to host side
+    complex* gpu_ref_fft_samples = (complex *)malloc(num_samples*sizeof(complex));
+    double elapsed_device = fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples);
+
+    
+
+    
+    
+    checkResult(fft_samples, gpu_ref_fft_samples, num_samples);
+    printf("Host: %f\n", elapsed_host);
+    printf("Device: %f\n", elapsed_device);
+    printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
+    getchar();
+
+
+
+
+
+
+
 
 
 
@@ -319,7 +423,7 @@ int main() {
 
     // inizializzazione dati
     char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
-    sprintf(generated_filename, "IFFT-generated-%s", FILE_NAME);
+    sprintf(generated_filename, "GPU-IFFT-generated-%s", FILE_NAME);
     // mi assicuro di non imbrogliare ricopiando i dati di prima
     memset(signal_samples, 0, num_samples*sizeof(short));
     memset(complex_signal_samples, 0, num_samples);
@@ -339,7 +443,7 @@ int main() {
         return 1;
     }
     
-    ifft_inplace(fft_samples, complex_signal_samples, num_samples);
+    ifft_inplace(gpu_ref_fft_samples, complex_signal_samples, num_samples);
     convert_to_short(complex_signal_samples, signal_samples, num_samples);
 
     // Scrittura dei dati audio nel file di output
@@ -351,4 +455,5 @@ int main() {
     free(signal_samples);
     free(complex_signal_samples);
     free(fft_samples);
+    free(gpu_ref_fft_samples);
 }

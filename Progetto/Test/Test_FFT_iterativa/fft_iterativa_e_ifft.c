@@ -103,10 +103,12 @@ int fft_iterativa(complex *input, complex *output, int N) {
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
             /*
-                Abbiamo quindi:
-                    - 
+                Abbiamo:
                     - output[k...N/2-1] sono le componenti della trasformata pari, mentre
-                    output[N/2...N-1] sono le componenti della trasformata dispari. Guarda diagramma a farfalla. 
+                      output[N/2...N-1] sono le componenti della trasformata dispari.
+                        - Guarda diagramma a farfalla. 
+                    
+                    ...
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 double phi = (-2*PI/N_stadio_corrente) * j; 
