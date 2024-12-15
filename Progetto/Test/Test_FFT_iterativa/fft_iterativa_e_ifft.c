@@ -99,17 +99,8 @@ int fft_iterativa(complex *input, complex *output, int N) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
-        double phi = -2.0*PI / N_stadio_corrente;
-        complex twiddle = {
-            cos(phi),
-            sin(phi)
-        };
-
         // Itera sull'array di output con passi pari a N_stadio_corrente
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
-            // parto sempre da k=0 -> twiddle^0 fa quindi uno 
-            complex twiddle_factor = {1, 0};
-
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
             /*
                 Abbiamo quindi:
@@ -118,11 +109,14 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     output[N/2...N-1] sono le componenti della trasformata dispari. Guarda diagramma a farfalla. 
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
+                double phi = (-2*PI/N_stadio_corrente) * j; 
+                complex twiddle_factor = {
+                    cos(phi),
+                    sin(phi)
+                };
+
                 complex a = output[k + j];
                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
-
-                // Compute pow(twiddle, j)
-                twiddle_factor = prodotto_tra_complessi(twiddle_factor, twiddle);
 
                 // calcolo trasformata
                 output[k + j].real = a.real + b.real;
