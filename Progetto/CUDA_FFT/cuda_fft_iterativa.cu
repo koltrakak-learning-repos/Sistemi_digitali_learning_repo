@@ -62,10 +62,11 @@ void checkResult(complex *hostRef, complex *gpuRef, const int N) {
 
 
 
-// Funzione strana che ho trovato, che mi permette di ottenere il bit reverse order degli indici
-// dei campioni della trasformata  in maniera efficiente O(log n).
+// Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
+// dei campioni della trasformata in maniera efficiente O(log n), rispetto all'usare un ciclo O(n)
+//
 // es. indice a 8 bit = 5:
-//  5 = 00000101   ->  reversed = 10100000 = 160 
+//      5 = 00000101   ->  reversed = 10100000 = 160 
 uint32_t reverse_bits(uint32_t x) {
     // 1. Swap the position of consecutive bits
     // 2. Swap the position of consecutive pairs of bits
@@ -113,7 +114,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
         return -1;
     }
 
-    int num_stadi = (int) log2f((float) N);
+    int num_stadi = (int) log2f((double) N);
 
     for (uint32_t i = 0; i < N; i++) {
         uint32_t rev = reverse_bits(i);
@@ -156,7 +157,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
 }
 
 
-// Kernel per calcolare le "farfalle"
+// Kernel che calcola una farfalla e la sua simmetrica 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -186,14 +187,14 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 }
 
 // Funzione principale FFT su GPU
-double fft_iterativa_cuda(complex *input, complex *output, int N) {
+void fft_iterativa_cuda(complex *input, complex *output, int N) {
     // Controllo che N sia una potenza di 2
     if (N & (N - 1)) {
         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
-        return -1;
+        return;
     }
 
-    int num_stadi = (int)log2f((float)N);
+    int num_stadi = (int)log2f((double)N);
 
     // Alloca memoria sulla GPU
     complex *d_input;
@@ -201,7 +202,6 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMalloc(&d_output, N*sizeof(complex));
     cudaMalloc(&d_input, N*sizeof(complex));
     cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
-
 
     // Copia input nell'output con bit-reversal (stadio 0)
     for (int i = 0; i < N; i++) {
@@ -213,15 +213,15 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMemcpy(d_output, output, N*sizeof(complex), cudaMemcpyHostToDevice);
 
     // Configurazione dei blocchi e dei thread
-    int threads_per_block = 256;
+    int threads_per_block = 1024;
     int num_threads = N/2;  // per calcolare N campioni della trasformata ho bisogno di soli N/2 thread data la simmetria
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
     /*
-        Ottimizzazione: spostare questo dentro in modo da avere meno trasferimenti e meno sincornizzazioni
+        Ottimizzazione: spostare questo ciclo dentro al kernel in modo da avere
+        meno lanci di kernel e meno sincornizzazioni
     */
     // Lancia i kernel per ogni stadio
-    double start = cpuSecond();
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
@@ -229,15 +229,11 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
         cudaDeviceSynchronize();
     }
-    double elapsed_device  = cpuSecond() - start;
-    
 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
     
     cudaFree(d_input);
     cudaFree(d_output);
-
-    return elapsed_device;
 }
 
 
@@ -298,10 +294,7 @@ int main() {
     }
 
     size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
-    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (float)num_samples/SAMPLE_RATE);
-
-    printf("\nSchiaccia un tasto per avviare...\n");
-    getchar();
+    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (double)num_samples/SAMPLE_RATE);
 
     // importante avere una potenza di 2
     int padded_samples = 1 << (int)ceil(log2(num_samples));
@@ -347,27 +340,6 @@ int main() {
 
 
 
-    // // Calcola e salvo l'ampiezza per ciascuna frequenza
-    // FILE *output_file = fopen("amplitude_spectrum.txt", "w");
-    // if (output_file == NULL) {
-    //     fprintf(stderr, "Errore nell'aprire il file di output.\n");
-    //     return 1;
-    // }
-
-    // for (int i = 0; i < num_samples; i++) {
-    //     double amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
-    //     double frequency = (double)i * SAMPLE_RATE / num_samples;
-
-    //     fprintf(output_file, "%lf %lf\n", frequency, amplitude);
-
-    //     if(amplitude > 1000000) {
-    //         printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
-    //     }
-    // }
-
-    // printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
-    // fclose(output_file);
-
 
 
 
@@ -393,20 +365,17 @@ int main() {
     printf("Using Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
-    // Copy kernel result back to host side
+    
     complex* gpu_ref_fft_samples = (complex *)malloc(num_samples*sizeof(complex));
-    double elapsed_device = fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples);
-
     
-
-    
+    start = cpuSecond();
+    fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples);
+    double elapsed_device  = cpuSecond() - start;
     
     checkResult(fft_samples, gpu_ref_fft_samples, num_samples);
-    printf("Host: %f\n", elapsed_host);
-    printf("Device: %f\n", elapsed_device);
+    printf("Host: %f ms\n", elapsed_host*1000);
+    printf("Device: %f ms\n", elapsed_device*1000);
     printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
-    getchar();
-
 
 
 
