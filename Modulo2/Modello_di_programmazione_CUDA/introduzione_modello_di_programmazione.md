@@ -17,7 +17,7 @@ Cosa Fa un Thread CUDA?
 - Esecuzione di Kernel: Ogni thread esegue lo stesso codice del kernel ma opera su dati diversi, determinati dai suoi identificatori univoci (threadIdx,blockIdx).
 - Stato del Thread: Ogni thread ha il proprio stato, che include il program counter, i registri, la memoria locale e altre risorse specifiche del thread.
 
-I thread CUDA non hanno bisogno di cambio di contesto, inoltre condividono memoria (vedroemo meglio in seguit).
+I thread CUDA non hanno bisogno di cambio di contesto, inoltre condividono memoria (vedremo meglio in seguito).
 
 ### FLUSSO TIPICO DI ELABORAZIONE CUDA
 1. Inizializzazione e Allocazione Memoria (Host)
