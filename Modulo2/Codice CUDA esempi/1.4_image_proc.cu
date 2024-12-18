@@ -30,7 +30,7 @@ __device__ inline unsigned char clamp(int value) {
 __global__ void rgbToGrayscaleKernel(unsigned char* d_input, unsigned char* d_output, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
-    
+
     if (x < width && y < height) {
         int idx = (y * width + x) * 3;
         int grayIdx = y * width + x;
@@ -139,6 +139,7 @@ int main(int argc, char **argv) {
     // Allocate device memory
     int imageSize = width * height * channels;
     unsigned char *d_input, *d_output;
+    
     CHECK(cudaMalloc((void **)&d_input, imageSize));
     CHECK(cudaMalloc((void **)&d_output, imageSize));
     CHECK(cudaMemcpy(d_input, h_input, imageSize, cudaMemcpyHostToDevice));
