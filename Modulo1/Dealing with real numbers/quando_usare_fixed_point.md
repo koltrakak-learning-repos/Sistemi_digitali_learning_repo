@@ -10,7 +10,16 @@ For instance, we can add two numbers like 0.75 and 1.5, performing the following
 
 Integer operations were feasible by simply scaling up numbers by a constant factor (ie, 10^2)
 
-### Chiedi perchè qua stiamo parlando di fixed-point se si sono utilizzati solo degli interi?
+### Chiedi perchè qua stiamo parlando di fixed-point se si sono utilizzati solo degli interi
+La tecnica del passare al mondo degli interi con una moltiplicazione per un fattore appropriato in realtà si può applicare anche nel contesto del floating-point. Solo che in questo cosa il range dinamico molto largo porta ad avere dei fattori moltiplicativi enormi se si moltiplica un float piccolo per uno molto grande. Questo porta ad avere a sua volta degli interi che hanno bisogno di un numero di bit enorme per essere rappresentati, questo fa perdere i vantaggi del passare alla rappresentazione intera.
+
+```
+Il "difetto" dei fixed-point di avere un range dinamico limitato li rende adatti per questo tipi di rappresentazioni al contrario dei fixed-point.
+```
+
+**Takeaway**: In generale i difetti dei floating point sono i vantaggi dei fixed-point e viceversa. 
+
+
 
 ...
 
