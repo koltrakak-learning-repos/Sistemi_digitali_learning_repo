@@ -30,7 +30,7 @@ __device__ inline unsigned char clamp(int value) {
 __global__ void rgbToGrayscaleKernel(unsigned char* d_input, unsigned char* d_output, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
-
+    
     if (x < width && y < height) {
         int idx = (y * width + x) * 3;
         int grayIdx = y * width + x;
@@ -117,7 +117,7 @@ __global__ void convolution2DKernel(unsigned char* d_input, unsigned char* d_out
 int main(int argc, char **argv) {
     if (argc < 4) {
         printf("Usage: %s <image_file> <operation> <block_size_x> <block_size_y> [additional_params]\n", argv[0]);
-        printf("Operations: grayscale, blur, flip\n");
+        printf("Operations: grayscale, blur, flip, convolution\n");
         return 1;
     }
 
@@ -139,7 +139,6 @@ int main(int argc, char **argv) {
     // Allocate device memory
     int imageSize = width * height * channels;
     unsigned char *d_input, *d_output;
-
     CHECK(cudaMalloc((void **)&d_input, imageSize));
     CHECK(cudaMalloc((void **)&d_output, imageSize));
     CHECK(cudaMemcpy(d_input, h_input, imageSize, cudaMemcpyHostToDevice));
@@ -158,6 +157,51 @@ int main(int argc, char **argv) {
     } else if (strcmp(operation, "flip") == 0) {
         bool isHorizontal = (argc > 4) ? (strcmp(argv[4], "horizontal") == 0) : true;
         flipKernel<<<grid, block>>>(d_input, d_output, width, height, channels, isHorizontal);
+    } else if (strcmp(operation, "convolution") == 0) {
+        if (argc < 6) {
+          printf("Usage: %s <image_file> convolution <block_size> <filter_type> <direction>\n", argv[0]);
+          printf("Filter types: sobel\n");
+          printf("Directions for Sobel: horizontal, vertical\n");
+          return 1;
+      }
+      
+      int filterSize = 3; // Sobel filter is always 3x3
+      float* h_filter = (float*)malloc(filterSize * filterSize * sizeof(float));
+      
+      const char* filterType = argv[5];
+      const char* direction = argv[6];
+
+      if (strcmp(filterType, "sobel") == 0) {
+          // Define Sobel filters
+          float sobel_horizontal[] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+          float sobel_vertical[] = {-1, -2, -1, 0, 0, 0, 1, 2, 1};
+
+          // Choose the appropriate filter based on the direction
+          if (strcmp(direction, "horizontal") == 0) {
+              memcpy(h_filter, sobel_horizontal, filterSize * filterSize * sizeof(float));
+          } else if (strcmp(direction, "vertical") == 0) {
+              memcpy(h_filter, sobel_vertical, filterSize * filterSize * sizeof(float));
+          } else {
+              printf("Invalid direction for Sobel filter. Use 'horizontal' or 'vertical'.\n");
+              return 1;
+          }
+      } else {
+          printf("Unsupported filter type. Currently only 'sobel' is supported.\n");
+          return 1;
+      }
+      
+      // No normalization
+      float filterSum = 1.0f;
+      
+      float* d_filter;
+      CHECK(cudaMalloc((void **)&d_filter, filterSize * filterSize * sizeof(float)));
+      CHECK(cudaMemcpy(d_filter, h_filter, filterSize * filterSize * sizeof(float), cudaMemcpyHostToDevice));
+      
+      // Launch the convolution kernel
+      convolution2DKernel<<<grid, block>>>(d_input, d_output, d_filter, width, height, channels, filterSize, filterSum);
+      
+      CHECK(cudaFree(d_filter));
+      free(h_filter);
     } else {
         printf("Unknown operation: %s\n", operation);
         return 1;
