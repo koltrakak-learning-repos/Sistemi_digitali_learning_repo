@@ -160,6 +160,10 @@ float calcola_frequenze_2D(int kx, int ky, int width, int height) {
     return f_xy;
 }
 
+/*
+    TODO: Salvare la frequenza non sembra funzionare bene...
+    Piuttosto, salva la posizione all'interno del vettore 'i'!
+*/
 int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int width, int height, float soglia, const char *filename) {
     FILE *file = fopen(filename, "wb");
     if (file == NULL) {
@@ -176,7 +180,7 @@ int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int wi
             float frequency = calcola_frequenze_2D(riga_corrente, colonna_corrente, width, height);
 
             // Scrivi frequenza, parte reale e immaginaria nel file binario
-            fwrite(&frequency, sizeof(float), 1, file);
+            fwrite(&i, sizeof(int), 1, file);
             fwrite(&output_fft_2D_data[i].real, sizeof(float), 1, file);
             fwrite(&output_fft_2D_data[i].imag, sizeof(float), 1, file);
 
@@ -205,19 +209,20 @@ int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_d
         output_fft_2D_data[i].imag = 0;
     }
 
-    float frequency, real, imag;
-    while (fread(&frequency, sizeof(float), 1, file) == 1 &&
+    int index;
+    float i, real, imag;
+    while (fread(&index, sizeof(int), 1, file) == 1 &&
            fread(&real, sizeof(float), 1, file) == 1 &&
            fread(&imag, sizeof(float), 1, file) == 1) {
         
         // Calcola gli indici in base alla frequenza
-        int riga_corrente = (int)(frequency * height);
-        int colonna_corrente = (int)(frequency * width);
-        int idx = riga_corrente * width + colonna_corrente;
+        // int riga_corrente = (int)(frequency * height);
+        // int colonna_corrente = (int)(frequency * width);
+        // int idx = riga_corrente * width + colonna_corrente;
 
         // Reinserisci il campione nella matrice FFT-2D
-        output_fft_2D_data[idx].real += real;
-        output_fft_2D_data[idx].imag += imag;
+        output_fft_2D_data[index].real += real;
+        output_fft_2D_data[index].imag += imag;
 
         //printf("\t\tletta tupla: (%f; %f; %f)\n", frequency, real, imag);
     }
