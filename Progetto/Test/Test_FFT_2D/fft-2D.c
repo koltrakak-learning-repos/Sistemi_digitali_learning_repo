@@ -72,7 +72,6 @@ void convert_to_uint8(complex *input, uint8_t *output, int N) {
 void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* height, int channels) {
     if( !(*width & (*width - 1)) && !(*height & (*height - 1)) ) {
         // sono già potenze di due
-        printf("\tasdasdasd\n");
         return;
     }
 
@@ -80,7 +79,6 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
     int new_width   = 1 << (int)ceil(log2(*width));
     int new_height  = 1 << (int)ceil(log2(*height));
 
-    printf("\t%d, %d\n", new_width, new_height);
     // Alloca la nuova immagine con padding
     int new_image_size = new_width * new_height * channels;
     uint8_t* padded_image_data = (uint8_t*)malloc(new_image_size);
@@ -128,7 +126,20 @@ int fft_iterativa(complex *input, complex *output, int N) {
         // del segnale in ingresso. Per cui, qua mantengo solo log_2(N) bit 
         rev = rev >> (32 - num_stadi);
 
-        output[i] = input[rev];
+        /*
+            Per comodità ho aggiunto questo controllo che mi permette di fare delle
+            trasformazioni inplace
+        */
+        if(input == output) {
+            if (i < rev) {  
+                complex temp = input[i];
+                output[i] = input[rev];
+                output[rev] = temp;
+            }
+        }
+        else {
+            output[i] = input[rev];
+        }
     }
 
     // Stadi 1, ..., log_2(N)
@@ -185,7 +196,20 @@ int ifft_iterativa(complex *input, complex *output, int N) {
         uint32_t rev = reverse_bits(i);
         rev = rev >> (32 - num_stadi);
 
-        output[i] = input[rev];
+        /*
+            Per comodità ho aggiunto questo controllo che mi permette di fare delle
+            trasformazioni inplace
+        */
+        if(input == output) {
+            if (i < rev) {  
+                complex temp = input[i];
+                output[i] = input[rev];
+                output[rev] = temp;
+            }
+        }
+        else {
+            output[i] = input[rev];
+        }
     }
 
     // Stadi 1, ..., log_2(N)
@@ -310,7 +334,6 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
     for(int i = 0; i < imageSize; i += row_size) {
         ifft_iterativa(&output_image_data[i], &output_image_data[i], row_size);
     }
-    printf("\t\toutput_image_data[0].real %f\n", output_image_data[0].real);
 
     return EXIT_SUCCESS;
 }
@@ -343,7 +366,7 @@ int main() {
         double amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
         // double frequency = (double)i * SAMPLE_RATE / num_samples;
 
-        if(amplitude > (1 << 24)) {
+        if(amplitude > 10000000) {
             printf("\tFrequenza: boh; Amplitude: %f\n", amplitude);
         }
     }
@@ -351,7 +374,7 @@ int main() {
     memset(complex_input_image_data, 0, sizeof(complex) * image_size);
     ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
 
-    printf("\t%f\n", complex_input_image_data[0].real); 
+    printf("\tcomplex_input_image_data[0].real = %f\n", complex_input_image_data[0].real); 
 
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
