@@ -93,12 +93,34 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
         }
     }
 
-    // aggiorno parametri per output
+    
     free(*input_image_data);
-
+    // aggiorno parametri per output
     *width = new_width;
     *height = new_height; 
     *input_image_data = padded_image_data;
+}
+
+void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width, int* padded_height,
+                                  int original_width, int original_height, int channels) {
+    // Alloca memoria per l'immagine senza padding
+    int original_image_size = original_width * original_height * channels;
+    uint8_t* unpadded_image_data = (uint8_t*)malloc(original_image_size);
+
+    // Copia i dati dalla versione con padding alla versione originale
+    for (int y = 0; y < original_height; y++) {
+        for (int x = 0; x < original_width; x++) {
+            for (int c = 0; c < channels; c++) {
+                unpadded_image_data[(y * original_width + x) * channels + c] = (*input_image_data)[(y * (*padded_width) + x) * channels + c];
+            }
+        }
+    }
+
+    free(*input_image_data);
+    // Aggiorna i parametri di output
+    *padded_width = original_width;
+    *padded_height = original_height;
+    *input_image_data = unpadded_image_data;
 }
 
 
@@ -349,8 +371,11 @@ int main() {
         return 1;
     }
     printf("Image loaded: %dx%d with %d channels\n", width, height, channels);
+    // salvo le dimensioni originali per dopo
+    int original_width = width;
+    int original_height = height;
 
-    // importante avere una potenza di 2
+    // importante avere come dimensioni potenze di 2 per FFT
     pad_image_to_power_of_two(&input_image_data, &width, &height, channels);
     printf("Image padded to: %dx%d\n", width, height);
 
@@ -364,6 +389,11 @@ int main() {
 
     for (int i = 0; i < image_size; i++) {
         double amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+
+        /*
+            Qua bisogna calcolare una FREQUENZA SPAZIALE (???)
+            Studiati meglio cosa significa ...
+        */
         // double frequency = (double)i * SAMPLE_RATE / num_samples;
 
         if(amplitude > 10000000) {
@@ -378,6 +408,7 @@ int main() {
 
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
+    unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
     
     // Save the output image
     char OUTPUT_FILE_NAME[256];
