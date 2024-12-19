@@ -123,6 +123,42 @@ void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width,
     *input_image_data = unpadded_image_data;
 }
 
+// double calcola_frequenze_2D(int kx, int ky, int width, int height) {
+//     /*
+//         Secondo: https://dsp.stackexchange.com/questions/22661/how-do-i-obtain-the-frequencies-of-each-value-in-a-2d-fft-and-what-do-they-mean 
+//         La frequenza di una componente della fft-2D si calcola così.
+//     */
+
+//     // Frequenze 1D lungo x e y
+//     double f_x = (double)kx / width;
+//     double f_y = (double)ky / height;
+
+//     // Frequenza spaziale combinata
+//     double f_xy = sqrt(f_x*f_x + f_y*f_y);
+
+//     return f_xy;
+// }
+
+double calcola_frequenze_2D(int kx, int ky, int width, int height) {
+    // A quanto pare bisogna effettuare una "centralizzazione degli indici"...
+    // Non so cosa significhi ma adesso ho dei valori più sensati
+    
+    if (kx >= width / 2) {
+        kx -= width;  // Mappare gli indici da -width/2 a +width/2
+    }
+    if (ky >= height / 2) {
+        ky -= height;  // Mappare gli indici da -height/2 a +height/2
+    }
+
+    // Frequenze 1D lungo x e y
+    double f_x = (double)kx / width;
+    double f_y = (double)ky / height;
+
+    // Frequenza spaziale combinata (modulo)
+    double f_xy = sqrt(f_x * f_x + f_y * f_y);
+
+    return f_xy;
+}
 
 
 
@@ -390,14 +426,12 @@ int main() {
     for (int i = 0; i < image_size; i++) {
         double amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
 
-        /*
-            Qua bisogna calcolare una FREQUENZA SPAZIALE (???)
-            Studiati meglio cosa significa ...
-        */
-        // double frequency = (double)i * SAMPLE_RATE / num_samples;
+        int riga_corrente = i / (width * channels);
+        int colonna_corrente = i % (width * channels);
+        double frequency = calcola_frequenze_2D(riga_corrente, colonna_corrente, width, height);
 
         if(amplitude > 10000000) {
-            printf("\tFrequenza: boh; Amplitude: %f\n", amplitude);
+            printf("\tFrequenza: %f; Amplitude: %f è importante\n", frequency, amplitude);
         }
     }
 
