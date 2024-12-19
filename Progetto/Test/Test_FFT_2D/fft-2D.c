@@ -171,6 +171,57 @@ int fft_iterativa(complex *input, complex *output, int N) {
     return EXIT_SUCCESS;
 }
 
+int ifft_iterativa(complex *input, complex *output, int N) {
+    if (N & (N - 1)) {
+        fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
+
+        return -1;
+    }
+
+    int num_stadi = (int) log2f((float) N);
+
+    // stadio 0
+    for (uint32_t i = 0; i < N; i++) {
+        uint32_t rev = reverse_bits(i);
+        rev = rev >> (32 - num_stadi);
+
+        output[i] = input[rev];
+    }
+
+    // Stadi 1, ..., log_2(N)
+    for (int stadio = 1; stadio <= num_stadi; stadio++) {
+        int N_stadio_corrente = 1 << stadio;
+        int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
+
+        for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
+            for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
+                double phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+                complex twiddle_factor = {
+                    cos(phi),
+                    sin(phi)
+                };
+
+                complex a = output[k + j];
+                complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+
+                // calcolo antitrasformata
+                output[k + j].real = a.real + b.real;
+                output[k + j].imag = a.imag + b.imag;
+                // simmetria per la seconda metà
+                output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
+                output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+            }
+        }
+    }
+
+    // normalizza i risultati alla fine
+    for(int i=0; i<N; i++) {
+        output[i].real /= N;
+        output[i].imag /= N;
+    }
+
+    return EXIT_SUCCESS;
+}
 
 int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
@@ -204,66 +255,68 @@ int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize
         //      -> il passo è row size;
         //      -> devo poi fare column_size passi
         complex colonna[column_size];
-        for(int i = 0; i < column_size; i++) {   // scorro tutti gli elementi di una colonna
-            colonna[i] = output_fft_2D_data[i*row_size + j];
+        for(int i = 0; i < column_size; i++) {
+            colonna[i] = output_fft_2D_data[i * row_size + j];
         }
 
-        // scrivo row_size colonne
-        fft_iterativa(colonna, &output_fft_2D_data[j*column_size], column_size);
+        fft_iterativa(colonna, colonna, column_size);
+
+        for(int i = 0; i < column_size; i++) {
+            output_fft_2D_data[i * row_size + j] = colonna[i];
+        }
     }
 
     return EXIT_SUCCESS;
 }
 
-// NB: nota come si praticamente uguale alla fft se non per il segno + dei twiddle 
-void ifft_inplace_recursive(complex *input, complex *output, int step, int N) {
-    if (N == 1) {
-        output[0] = input[0];
-        return;
+int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSize, int row_size, int column_size) {
+    // Le dimensioni dei dati devono essere potenze di due
+    if (imageSize != row_size*column_size) {
+        fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
+
+        return -1;
+    }
+    if (row_size & (row_size - 1)) {
+        fprintf(stderr, "row_size=%u deve essere una potenza di due\n", row_size);
+
+        return -1;
+    }
+    if (column_size & (column_size - 1)) {
+        fprintf(stderr, "column_size=%u deve essere una potenza di due\n", column_size);
+
+        return -1;
     }
 
-    // Calcola la IFFT sui sotto-array pari e dispari
-    ifft_inplace_recursive(input, output, step*2, N/2);
-    ifft_inplace_recursive(input + step, output + N/2, step*2, N/2); 
 
-    // Combina i risultati
-    for (int k = 0; k < N/2; k++) {
-        double phi = 2*PI*k / N; // Cambia il segno per la IFFT
-        complex twiddle = {
-            cos(phi),
-            sin(phi)
-        };
+    // IFFT delle colonne
+    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
+        // mi costruisco la colonna
+        //      -> il passo è row size;
+        //      -> devo poi fare column_size passi
+        complex colonna[column_size];
+        for(int i = 0; i < column_size; i++) {
+            colonna[i] = input_fft_2D_data[i * row_size + j];
+        }
 
-        complex even = output[k];
-
-        complex temp = {
-            twiddle.real * output[k + N/2].real - twiddle.imag * output[k + N/2].imag,
-            twiddle.real * output[k + N/2].imag + twiddle.imag * output[k + N/2].real
-        };
-
-        output[k].real = even.real + temp.real;
-        output[k].imag = even.imag + temp.imag;
-        //relazione simmetrica
-        output[k + N/2].real = even.real - temp.real;
-        output[k + N/2].imag = even.imag - temp.imag;
+        ifft_iterativa(colonna, colonna, column_size);
+        for(int i = 0; i < column_size; i++) {
+            output_image_data[i*row_size + j] = colonna[i];
+        }
     }
+
+    // IFFT delle righe
+    //      -> j indice di colonna
+    //      -> i indice di riga
+    for(int i = 0; i < imageSize; i += row_size) {
+        ifft_iterativa(&output_image_data[i], &output_image_data[i], row_size);
+    }
+    printf("\t\toutput_image_data[0].real %f\n", output_image_data[0].real);
+
+    return EXIT_SUCCESS;
 }
-
-void ifft_inplace(complex *input, complex *output, int N) {
-    ifft_inplace_recursive(input, output, 1, N);
-
-    // Non scordarti di normalizzare
-    // NB: a quanto pare è importante che la normalizzazione avvenga soltanto alla fine di tutto
-    for (int i = 0; i < N; i++) {
-        output[i].real /= N;
-        output[i].imag /= N;
-    }
-}
-
-
 
 int main() {
-    const char* FILE_NAME = "image.png";
+    const char* FILE_NAME = "image_grayscale.png";
 
     // Load the image
     int width, height, channels;
@@ -286,24 +339,23 @@ int main() {
 
     fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
 
+    for (int i = 0; i < image_size; i++) {
+        double amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        // double frequency = (double)i * SAMPLE_RATE / num_samples;
 
-
-
-
-
-
-
-
-
-    
-
-    // Copio solo i byte blu
-    uint8_t* output_image_data = (uint8_t*)malloc(image_size);
-    memset(output_image_data, 0, image_size);
-    for(int i=0; i<image_size; i+=channels) {
-        output_image_data[i+2] = input_image_data[i+2];
+        if(amplitude > (1 << 24)) {
+            printf("\tFrequenza: boh; Amplitude: %f\n", amplitude);
+        }
     }
 
+    memset(complex_input_image_data, 0, sizeof(complex) * image_size);
+    ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
+
+    printf("\t%f\n", complex_input_image_data[0].real); 
+
+    uint8_t* output_image_data = (uint8_t*)malloc(image_size);
+    convert_to_uint8(complex_input_image_data, output_image_data, image_size);
+    
     // Save the output image
     char OUTPUT_FILE_NAME[256];
     sprintf(OUTPUT_FILE_NAME, "output_%s", FILE_NAME);
@@ -313,85 +365,4 @@ int main() {
     // Clean up
     stbi_image_free(input_image_data);
     free(output_image_data);
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // // calcolo la FFT
-    // convert_to_complex(signal_samples, complex_signal_samples, num_samples);
-    // fft_iterativa(complex_signal_samples, fft_samples, num_samples);
-
-    // // Calcola e salvo l'ampiezza per ciascuna frequenza
-    // FILE *output_file = fopen("amplitude_spectrum.txt", "w");
-    // if (output_file == NULL) {
-    //     fprintf(stderr, "Errore nell'aprire il file di output.\n");
-    //     return 1;
-    // }
-
-    // for (int i = 0; i < num_samples; i++) {
-    //     double amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
-    //     double frequency = (double)i * SAMPLE_RATE / num_samples;
-
-    //     fprintf(output_file, "%lf %lf\n", frequency, amplitude);
-
-    //     if(amplitude > 1000000) {
-    //         printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
-    //     }
-    // }
-
-    // printf("I dati dello spettro sono stati scritti in 'amplitude_spectrum.txt'.\n");
-    // fclose(output_file);
-
-
-
-
-    /* --- PARTE IFFT --- */
-
-    
-
-    // // inizializzazione dati
-    // char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
-    // sprintf(generated_filename, "IFFT-generated-%s", FILE_NAME);
-    // // mi assicuro di non imbrogliare ricopiando i dati di prima
-    // memset(signal_samples, 0, num_samples*sizeof(short));
-    // memset(complex_signal_samples, 0, num_samples);
-
-    // // Preparazione del formato del file di output
-    // drwav_data_format format_out;
-    // format_out.container = drwav_container_riff;
-    // format_out.format = DR_WAVE_FORMAT_PCM;
-    // format_out.channels = 1;              // Mono
-    // format_out.sampleRate = SAMPLE_RATE;  // Frequenza di campionamento
-    // format_out.bitsPerSample = 16;        // 16 bit per campione
-
-    // // Inizializzazione del file di output
-    // drwav wav_out;
-    // if (!drwav_init_file_write(&wav_out, generated_filename, &format_out, NULL)) {
-    //     fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
-    //     return 1;
-    // }
-    
-    // ifft_inplace(fft_samples, complex_signal_samples, num_samples);
-    // convert_to_short(complex_signal_samples, signal_samples, num_samples);
-
-    // // Scrittura dei dati audio nel file di output
-    // drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
-    // drwav_uninit(&wav_out); // Chiusura del file di output
-
-    // printf("File WAV %s creato con successo\n", generated_filename);
-
-    // free(signal_samples);
-    // free(complex_signal_samples);
-    // free(fft_samples);
 }
