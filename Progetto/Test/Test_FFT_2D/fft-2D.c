@@ -14,8 +14,8 @@
 #define PI 3.14159265358979323846
 
 typedef struct {
-    double real;
-    double imag;
+    float real;
+    float imag;
 } complex;
 
 complex prodotto_tra_complessi(complex a, complex b) {
@@ -58,7 +58,7 @@ uint32_t reverse_bits(uint32_t x) {
 
 void convert_to_complex(uint8_t *input, complex *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i].real = (double)input[i];
+        output[i].real = (float)input[i];
         output[i].imag = 0.0;
     }
 }
@@ -123,26 +123,26 @@ void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width,
     *input_image_data = unpadded_image_data;
 }
 
-// double calcola_frequenze_2D(int kx, int ky, int width, int height) {
+// float calcola_frequenze_2D(int kx, int ky, int width, int height) {
 //     /*
 //         Secondo: https://dsp.stackexchange.com/questions/22661/how-do-i-obtain-the-frequencies-of-each-value-in-a-2d-fft-and-what-do-they-mean 
 //         La frequenza di una componente della fft-2D si calcola così.
 //     */
 
 //     // Frequenze 1D lungo x e y
-//     double f_x = (double)kx / width;
-//     double f_y = (double)ky / height;
+//     float f_x = (float)kx / width;
+//     float f_y = (float)ky / height;
 
 //     // Frequenza spaziale combinata
-//     double f_xy = sqrt(f_x*f_x + f_y*f_y);
+//     float f_xy = sqrt(f_x*f_x + f_y*f_y);
 
 //     return f_xy;
 // }
 
-double calcola_frequenze_2D(int kx, int ky, int width, int height) {
+float calcola_frequenze_2D(int kx, int ky, int width, int height) {
     // A quanto pare bisogna effettuare una "centralizzazione degli indici"...
     // Non so cosa significhi ma adesso ho dei valori più sensati
-    
+
     if (kx >= width / 2) {
         kx -= width;  // Mappare gli indici da -width/2 a +width/2
     }
@@ -151,15 +151,81 @@ double calcola_frequenze_2D(int kx, int ky, int width, int height) {
     }
 
     // Frequenze 1D lungo x e y
-    double f_x = (double)kx / width;
-    double f_y = (double)ky / height;
+    float f_x = (float)kx / width;
+    float f_y = (float)ky / height;
 
     // Frequenza spaziale combinata (modulo)
-    double f_xy = sqrt(f_x * f_x + f_y * f_y);
+    float f_xy = sqrt(f_x * f_x + f_y * f_y);
 
     return f_xy;
 }
 
+int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int width, int height, float soglia, const char *filename) {
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "Errore nell'aprire il file per la scrittura\n");
+        return -1;
+    }
+
+    for (int i = 0; i < image_size; i++) {
+        float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        // Se l'ampiezza è maggiore della soglia, salviamo il campione
+        if (amplitude > soglia) {
+            int riga_corrente = i / width;
+            int colonna_corrente = i % width;
+            float frequency = calcola_frequenze_2D(riga_corrente, colonna_corrente, width, height);
+
+            // Scrivi frequenza, parte reale e immaginaria nel file binario
+            fwrite(&frequency, sizeof(float), 1, file);
+            fwrite(&output_fft_2D_data[i].real, sizeof(float), 1, file);
+            fwrite(&output_fft_2D_data[i].imag, sizeof(float), 1, file);
+
+            //printf("\t\tsalvata tupla: (%f; %f; %f)\n", frequency, output_fft_2D_data[i].real, output_fft_2D_data[i].imag);
+        }
+    }
+
+    fclose(file);
+
+    printf("File compresso con successo!\n");
+
+    return 0;
+}
+
+
+int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_data, int width, int height) {
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL) {
+        fprintf(stderr, "Errore nell'aprire il file per la lettura\n");
+        return -1;
+    }
+
+    // Tutti i campioni sono di base nulli
+    for (int i = 0; i < width * height; i++) {
+        output_fft_2D_data[i].real = 0;
+        output_fft_2D_data[i].imag = 0;
+    }
+
+    float frequency, real, imag;
+    while (fread(&frequency, sizeof(float), 1, file) == 1 &&
+           fread(&real, sizeof(float), 1, file) == 1 &&
+           fread(&imag, sizeof(float), 1, file) == 1) {
+        
+        // Calcola gli indici in base alla frequenza
+        int riga_corrente = (int)(frequency * height);
+        int colonna_corrente = (int)(frequency * width);
+        int idx = riga_corrente * width + colonna_corrente;
+
+        // Reinserisci il campione nella matrice FFT-2D
+        output_fft_2D_data[idx].real += real;
+        output_fft_2D_data[idx].imag += imag;
+
+        //printf("\t\tletta tupla: (%f; %f; %f)\n", frequency, real, imag);
+    }
+
+    fclose(file);
+    printf("file decompresso con successo!\n");
+    return 0;
+}
 
 
 int fft_iterativa(complex *input, complex *output, int N) {
@@ -218,7 +284,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     ...
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                double phi = (-2*PI/N_stadio_corrente) * j; 
+                float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -277,7 +343,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                double phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+                float phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -411,7 +477,7 @@ int main() {
     int original_width = width;
     int original_height = height;
 
-    // importante avere come dimensioni potenze di 2 per FFT
+    // importante avere come dimensioni potenze di 2 (per FFT)
     pad_image_to_power_of_two(&input_image_data, &width, &height, channels);
     printf("Image padded to: %dx%d\n", width, height);
 
@@ -421,34 +487,32 @@ int main() {
     convert_to_complex(input_image_data, complex_input_image_data, image_size);
     complex* output_fft_2D_data = (complex*)malloc(sizeof(complex) * image_size);
 
+
+    /* ----- COMPRESSIONE ----- */
     fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
+    printf("\toutput %f\n", output_fft_2D_data[0].real);
 
-    for (int i = 0; i < image_size; i++) {
-        double amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+    char COMPRESSED_FILE_NAME[256];
+    sprintf(COMPRESSED_FILE_NAME, "compressed_%s.myformat", FILE_NAME);
+    comprimi_in_file_binario(output_fft_2D_data, image_size, width, height, 10000, COMPRESSED_FILE_NAME);
 
-        int riga_corrente = i / (width * channels);
-        int colonna_corrente = i % (width * channels);
-        double frequency = calcola_frequenze_2D(riga_corrente, colonna_corrente, width, height);
-
-        if(amplitude > 10000000) {
-            printf("\tFrequenza: %f; Amplitude: %f è importante\n", frequency, amplitude);
-        }
-    }
-
+    /*  ----- DECOMPRESSIONE ----- */
+    memset(output_fft_2D_data, 0, sizeof(complex) * image_size);
     memset(complex_input_image_data, 0, sizeof(complex) * image_size);
-    ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
 
-    printf("\tcomplex_input_image_data[0].real = %f\n", complex_input_image_data[0].real); 
+    decomprimi_in_campioni_fft_2D(COMPRESSED_FILE_NAME, output_fft_2D_data, width, height);
+
+    ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
 
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
     unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
     
-    // Save the output image
-    char OUTPUT_FILE_NAME[256];
-    sprintf(OUTPUT_FILE_NAME, "output_%s", FILE_NAME);
-    stbi_write_png(OUTPUT_FILE_NAME, width, height, channels, output_image_data, width * channels);
-    printf("Output saved as %s\n", OUTPUT_FILE_NAME);
+    // Save the decompressed image
+    char DECOMPRESSED_FILE_NAME[256];
+    sprintf(DECOMPRESSED_FILE_NAME, "decompressed_%s", FILE_NAME);
+    stbi_write_png(DECOMPRESSED_FILE_NAME, width, height, channels, output_image_data, width * channels);
+    printf("Output saved as: %s\n", DECOMPRESSED_FILE_NAME);
 
     // Clean up
     stbi_image_free(input_image_data);
