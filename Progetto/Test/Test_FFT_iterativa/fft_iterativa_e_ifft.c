@@ -133,54 +133,58 @@ int fft_iterativa(complex *input, complex *output, int N) {
     return EXIT_SUCCESS;
 }
 
+int ifft_iterativa(complex *input, complex *output, int N) {
+    if (N & (N - 1)) {
+        fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
 
-
-
-
-// NB: nota come si praticamente uguale alla fft se non per il segno + dei twiddle 
-void ifft_inplace_recursive(complex *input, complex *output, int step, int N) {
-    if (N == 1) {
-        output[0] = input[0];
-        return;
+        return -1;
     }
 
-    // Calcola la IFFT sui sotto-array pari e dispari
-    ifft_inplace_recursive(input, output, step*2, N/2);
-    ifft_inplace_recursive(input + step, output + N/2, step*2, N/2); 
+    int num_stadi = (int) log2f((float) N);
 
-    // Combina i risultati
-    for (int k = 0; k < N/2; k++) {
-        double phi = 2*PI*k / N; // Cambia il segno per la IFFT
-        complex twiddle = {
-            cos(phi),
-            sin(phi)
-        };
+    // stadio 0
+    for (uint32_t i = 0; i < N; i++) {
+        uint32_t rev = reverse_bits(i);
+        rev = rev >> (32 - num_stadi);
 
-        complex even = output[k];
-
-        complex temp = {
-            twiddle.real * output[k + N/2].real - twiddle.imag * output[k + N/2].imag,
-            twiddle.real * output[k + N/2].imag + twiddle.imag * output[k + N/2].real
-        };
-
-        output[k].real = even.real + temp.real;
-        output[k].imag = even.imag + temp.imag;
-        //relazione simmetrica
-        output[k + N/2].real = even.real - temp.real;
-        output[k + N/2].imag = even.imag - temp.imag;
+        output[i] = input[rev];
     }
-}
 
-void ifft_inplace(complex *input, complex *output, int N) {
-    ifft_inplace_recursive(input, output, 1, N);
+    // Stadi 1, ..., log_2(N)
+    for (int stadio = 1; stadio <= num_stadi; stadio++) {
+        int N_stadio_corrente = 1 << stadio;
+        int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
-    // Non scordarti di normalizzare
-    // NB: a quanto pare è importante che la normalizzazione avvenga soltanto alla fine di tutto
-    for (int i = 0; i < N; i++) {
+        for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
+            for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
+                double phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+                complex twiddle_factor = {
+                    cos(phi),
+                    sin(phi)
+                };
+
+                complex a = output[k + j];
+                complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+
+                // calcolo antitrasformata
+                output[k + j].real = a.real + b.real;
+                output[k + j].imag = a.imag + b.imag;
+                // simmetria per la seconda metà
+                output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
+                output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+            }
+        }
+    }
+
+    // normalizza i risultati alla fine
+    for(int i=0; i<N; i++) {
         output[i].real /= N;
         output[i].imag /= N;
     }
+
+    return EXIT_SUCCESS;
 }
+
 
 
 
@@ -287,7 +291,7 @@ int main() {
         return 1;
     }
     
-    ifft_inplace(fft_samples, complex_signal_samples, num_samples);
+    ifft_iterativa(fft_samples, complex_signal_samples, num_samples);
     convert_to_short(complex_signal_samples, signal_samples, num_samples);
 
     // Scrittura dei dati audio nel file di output
