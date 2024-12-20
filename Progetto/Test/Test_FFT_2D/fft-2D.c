@@ -160,18 +160,16 @@ float calcola_frequenze_2D(int kx, int ky, int width, int height) {
     return f_xy;
 }
 
-float trova_max_ampiezza(complex *output_fft_2D_data, int image_size) {
-    float max = 0;
+float trova_ampiezza_media(complex *output_fft_2D_data, int image_size) {
+    float sum = 0;
 
     for (int i = 0; i < image_size; i++) {
         float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
         
-        if (amplitude > max) {
-            max = amplitude;
-        }
+        sum += amplitude;
     }
 
-    return max;
+    return sum / image_size;
 }
 
 int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int width, int height, float soglia, const char *filename) {
@@ -470,7 +468,7 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 
 int main() {
     const char* FILE_NAME = "image_grayscale.png";
-    const int FATTORE_DI_COMPRESSIONE = 4000;
+    const int FATTORE_DI_COMPRESSIONE = 3;
 
     // Load the image
     int width, height, channels;
@@ -501,8 +499,8 @@ int main() {
 
     char COMPRESSED_FILE_NAME[256];
     sprintf(COMPRESSED_FILE_NAME, "compressed_%s.myformat", FILE_NAME);
-    float max_ampiezza = trova_max_ampiezza(output_fft_2D_data, image_size);
-    float soglia = max_ampiezza / FATTORE_DI_COMPRESSIONE; 
+    float max_ampiezza = trova_ampiezza_media(output_fft_2D_data, image_size);
+    float soglia = max_ampiezza * FATTORE_DI_COMPRESSIONE; 
     printf("\tsoglia di filtro: %f\n", soglia);
     comprimi_in_file_binario(output_fft_2D_data, image_size, width, height, soglia, COMPRESSED_FILE_NAME);
 
