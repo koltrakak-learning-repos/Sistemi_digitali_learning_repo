@@ -160,10 +160,20 @@ float calcola_frequenze_2D(int kx, int ky, int width, int height) {
     return f_xy;
 }
 
-/*
-    TODO: Salvare la frequenza non sembra funzionare bene...
-    Piuttosto, salva la posizione all'interno del vettore 'i'!
-*/
+float trova_max_ampiezza(complex *output_fft_2D_data, int image_size) {
+    float max = 0;
+
+    for (int i = 0; i < image_size; i++) {
+        float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        
+        if (amplitude > max) {
+            max = amplitude;
+        }
+    }
+
+    return max;
+}
+
 int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int width, int height, float soglia, const char *filename) {
     FILE *file = fopen(filename, "wb");
     if (file == NULL) {
@@ -171,30 +181,29 @@ int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int wi
         return -1;
     }
 
+    int conta = 0;
     for (int i = 0; i < image_size; i++) {
         float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        
         // Se l'ampiezza è maggiore della soglia, salviamo il campione
         if (amplitude > soglia) {
-            int riga_corrente = i / width;
-            int colonna_corrente = i % width;
-            float frequency = calcola_frequenze_2D(riga_corrente, colonna_corrente, width, height);
-
-            // Scrivi frequenza, parte reale e immaginaria nel file binario
+            // Scrivi indice del campione, parte reale e immaginaria nel file binario
             fwrite(&i, sizeof(int), 1, file);
             fwrite(&output_fft_2D_data[i].real, sizeof(float), 1, file);
             fwrite(&output_fft_2D_data[i].imag, sizeof(float), 1, file);
 
-            //printf("\t\tsalvata tupla: (%f; %f; %f)\n", frequency, output_fft_2D_data[i].real, output_fft_2D_data[i].imag);
+            conta++;
         }
     }
 
     fclose(file);
 
     printf("File compresso con successo!\n");
+    printf("\tL'immagine di dimensione %d byte è stata compressa in %d entry da 12 byte (%d byte)\n", image_size, conta, conta*12);
+    printf("\tGuadagno: %f\n", (float)image_size / (conta*12));
 
     return 0;
 }
-
 
 int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_data, int width, int height) {
     FILE *file = fopen(filename, "rb");
@@ -215,23 +224,15 @@ int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_d
            fread(&real, sizeof(float), 1, file) == 1 &&
            fread(&imag, sizeof(float), 1, file) == 1) {
         
-        // Calcola gli indici in base alla frequenza
-        // int riga_corrente = (int)(frequency * height);
-        // int colonna_corrente = (int)(frequency * width);
-        // int idx = riga_corrente * width + colonna_corrente;
-
         // Reinserisci il campione nella matrice FFT-2D
-        output_fft_2D_data[index].real += real;
-        output_fft_2D_data[index].imag += imag;
-
-        //printf("\t\tletta tupla: (%f; %f; %f)\n", frequency, real, imag);
+        output_fft_2D_data[index].real = real;
+        output_fft_2D_data[index].imag = imag;
     }
 
     fclose(file);
     printf("file decompresso con successo!\n");
     return 0;
 }
-
 
 int fft_iterativa(complex *input, complex *output, int N) {
     // N & (N - 1) = ...01000... & ...00111... = 0
@@ -469,6 +470,7 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 
 int main() {
     const char* FILE_NAME = "image_grayscale.png";
+    const int FATTORE_DI_COMPRESSIONE = 4000;
 
     // Load the image
     int width, height, channels;
@@ -495,23 +497,26 @@ int main() {
 
     /* ----- COMPRESSIONE ----- */
     fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
-    printf("\toutput %f\n", output_fft_2D_data[0].real);
+    
 
     char COMPRESSED_FILE_NAME[256];
     sprintf(COMPRESSED_FILE_NAME, "compressed_%s.myformat", FILE_NAME);
-    comprimi_in_file_binario(output_fft_2D_data, image_size, width, height, 10000, COMPRESSED_FILE_NAME);
+    float max_ampiezza = trova_max_ampiezza(output_fft_2D_data, image_size);
+    float soglia = max_ampiezza / FATTORE_DI_COMPRESSIONE; 
+    printf("\tsoglia di filtro: %f\n", soglia);
+    comprimi_in_file_binario(output_fft_2D_data, image_size, width, height, soglia, COMPRESSED_FILE_NAME);
 
     /*  ----- DECOMPRESSIONE ----- */
     memset(output_fft_2D_data, 0, sizeof(complex) * image_size);
     memset(complex_input_image_data, 0, sizeof(complex) * image_size);
 
     decomprimi_in_campioni_fft_2D(COMPRESSED_FILE_NAME, output_fft_2D_data, width, height);
-
     ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
 
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
-    unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
+
+    // unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
     
     // Save the decompressed image
     char DECOMPRESSED_FILE_NAME[256];
