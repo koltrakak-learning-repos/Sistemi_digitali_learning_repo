@@ -9,6 +9,8 @@
 
 #define SAMPLE_RATE 44100
 #define PI 3.14159265358979323846
+//#define PI 3.14159265359f
+
 
 #define CHECK(call) \
 { \
@@ -67,7 +69,7 @@ void checkResult(complex *hostRef, complex *gpuRef, const int N) {
 //
 // es. indice a 8 bit = 5:
 //      5 = 00000101   ->  reversed = 10100000 = 160 
-uint32_t reverse_bits(uint32_t x) {
+__host__ __device__ uint32_t reverse_bits(uint32_t x) {
     // 1. Swap the position of consecutive bits
     // 2. Swap the position of consecutive pairs of bits
     // 3. Swap the position of consecutive quads of bits
@@ -116,12 +118,13 @@ int fft_iterativa(complex *input, complex *output, int N) {
     }
 
     // num_stadi = "quante volte posso dividere N per due"
-    int num_stadi = (int) log2f((float) N);
+    int num_stadi = (int) log2f((double) N);
 
     // stadio 0: DFT di un campione
     // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
     // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
     // che avviene in modo esplicito nella versione ricorsiva.
+    double start = cpuSecond();
     for (uint32_t i = 0; i < N; i++) {
         uint32_t rev = reverse_bits(i);
         // Non faccio un bit reversal completo ma uno parziale che 
@@ -144,6 +147,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
+    printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -163,7 +167,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     - j = offset all'interno del blocco di farfalle considerato
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                float phi = (-2*PI/N_stadio_corrente) * j; 
+                double phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -192,7 +196,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
         return -1;
     }
 
-    int num_stadi = (int) log2f((float) N);
+    int num_stadi = (int) log2f((double) N);
 
     // stadio 0
     for (uint32_t i = 0; i < N; i++) {
@@ -222,7 +226,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                float phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+                double phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -254,8 +258,30 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
 
 
+__global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
+    uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
+    // controllo se ci sono dei thread in eccesso
+    if (thread_id >= N) {
+        // printf("\tsono un thread in eccesso\n");
+        return;
+    }
 
+    // Copia input nell'output con bit-reversal (stadio 0)
+    uint32_t rev = reverse_bits(thread_id);
+    rev = rev >> (32 - num_stadi);
+
+    if(input == output) {
+        if (thread_id < rev) {  
+            complex temp = input[thread_id];
+            output[thread_id] = input[rev];
+            output[rev] = temp;
+        }
+    }
+    else {
+        output[thread_id] = input[rev];
+    }
+}
 
 // Kernel che calcola una farfalla e la sua simmetrica 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
@@ -263,7 +289,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N/2) {
-        printf("\tsono un thread in eccesso\n");
+        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
@@ -272,6 +298,10 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
 
+    /*
+        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
+        potrebbe essere precalcolare il vettore dei twiddle factor  
+    */
     double phi = (-2.0*PI/N_stadio_corrente) * j;
     complex twiddle_factor = {
         cos(phi),
@@ -283,7 +313,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
-
+    // simmetria
     output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
@@ -304,34 +334,20 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMalloc(&d_input, N*sizeof(complex));
     cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
 
-    // Copia input nell'output con bit-reversal (stadio 0)
-    for (int i = 0; i < N; i++) {
-        uint32_t rev = reverse_bits(i);
-        rev = rev >> (32 - num_stadi);
-
-        if(input == output) {
-            if (i < rev) {  
-                complex temp = input[i];
-                output[i] = input[rev];
-                output[rev] = temp;
-            }
-        }
-        else {
-            output[i] = input[rev];
-        }
-    }
-    cudaMemcpy(d_output, output, N*sizeof(complex), cudaMemcpyHostToDevice);
-
-    // Configurazione dei blocchi e dei thread
-    int threads_per_block = 1024;
-    int num_threads = N/2;  // per calcolare N campioni della trasformata ho bisogno di soli N/2 thread data la simmetria
-    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
-
-    /*
-        Ottimizzazione: spostare questo ciclo dentro al kernel in modo da avere
-        meno lanci di kernel e meno sincornizzazioni
-    */
+    // // Configurazione dei blocchi e dei thread per il bit reversal
     double start = cpuSecond();
+    int threads_per_block = 1024;
+    int num_threads = N;
+    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+    fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
+    cudaDeviceSynchronize();
+    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+
+    // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
+    threads_per_block = 1024;
+    num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
+    num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
     // Lancia i kernel per ogni stadio
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;

@@ -124,6 +124,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
     // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
     // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
     // che avviene in modo esplicito nella versione ricorsiva.
+    double start = cpuSecond();
     for (uint32_t i = 0; i < N; i++) {
         uint32_t rev = reverse_bits(i);
         // Non faccio un bit reversal completo ma uno parziale che 
@@ -146,6 +147,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
+    printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -281,7 +283,6 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
     }
 }
 
-
 // Kernel che calcola una farfalla e la sua simmetrica 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
@@ -297,6 +298,10 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
 
+    /*
+        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
+        potrebbe essere precalcolare il vettore dei twiddle factor  
+    */
     float phi = (-2.0f*PI/N_stadio_corrente) * j;
     complex twiddle_factor = {
         __cosf(phi),
@@ -308,7 +313,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
-
+    // simmetria
     output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
@@ -329,40 +334,20 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMalloc(&d_input, N*sizeof(complex));
     cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
 
-    // // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
-    // int threads_per_block = 1024;
-    // int num_threads = N;
-    // int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
-    // fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    
-    // Copia input nell'output con bit-reversal (stadio 0)
-    for (int i = 0; i < N; i++) {
-        uint32_t rev = reverse_bits(i);
-        rev = rev >> (32 - num_stadi);
-
-        if(input == output) {
-            if (i < rev) {  
-                complex temp = input[i];
-                output[i] = input[rev];
-                output[rev] = temp;
-            }
-        }
-        else {
-            output[i] = input[rev];
-        }
-    }
-    cudaMemcpy(d_output, output, N*sizeof(complex), cudaMemcpyHostToDevice);
+    // // Configurazione dei blocchi e dei thread per il bit reversal
+    double start = cpuSecond();
+    int threads_per_block = 1024;
+    int num_threads = N;
+    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+    fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
+    cudaDeviceSynchronize();
+    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
-    int threads_per_block = 1024;
-    int num_threads = N/2;  // per calcolare N campioni della trasformata ho bisogno di soli N/2 thread data la simmetria
-    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+    threads_per_block = 1024;
+    num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
+    num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
-    /*
-        Ottimizzazione: spostare questo ciclo dentro al kernel in modo da avere
-        meno lanci di kernel e meno sincornizzazioni
-    */
-    double start = cpuSecond();
     // Lancia i kernel per ogni stadio
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
