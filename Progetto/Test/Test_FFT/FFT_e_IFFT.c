@@ -212,7 +212,7 @@ void convert_to_short(complex *input, short *output, int N) {
 
 
 int main() {
-    const char* FILE_NAME = "StarWars3_44100.wav";
+    const char* FILE_NAME = "michelle.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -278,7 +278,7 @@ int main() {
         fprintf(output_file, "%lf %lf\n", frequency, amplitude);
 
         if(amplitude > 1000000) {
-            printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
+            // printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
         }
     }
 

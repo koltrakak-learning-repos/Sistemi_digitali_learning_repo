@@ -11,8 +11,8 @@
 #define PI 3.14159265358979323846
 
 typedef struct {
-    double real;
-    double imag;
+    float real;
+    float imag;
 } complex;
 
 complex prodotto_tra_complessi(complex a, complex b) {
@@ -55,7 +55,7 @@ uint32_t reverse_bits(uint32_t x) {
 
 void convert_to_complex(short *input, complex *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i].real = (double)input[i];
+        output[i].real = (float)input[i];
         output[i].imag = 0.0;
     }
 }
@@ -111,7 +111,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     ...
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                double phi = (-2*PI/N_stadio_corrente) * j; 
+                float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -157,7 +157,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                double phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+                float phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
                 complex twiddle_factor = {
                     cos(phi),
                     sin(phi)
@@ -189,7 +189,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
 
 int main() {
-    const char* FILE_NAME = "test_voce.wav";
+    const char* FILE_NAME = "michelle.wav";
     drwav wav_in;
     
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
@@ -249,13 +249,13 @@ int main() {
     }
 
     for (int i = 0; i < num_samples; i++) {
-        double amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
-        double frequency = (double)i * SAMPLE_RATE / num_samples;
+        float amplitude = sqrt(fft_samples[i].real*fft_samples[i].real + fft_samples[i].imag*fft_samples[i].imag);
+        float frequency = (float)i * SAMPLE_RATE / num_samples;
 
         fprintf(output_file, "%lf %lf\n", frequency, amplitude);
 
         if(amplitude > 1000000) {
-            printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
+            // printf("Frequenza: %lf sembra essere un componente utile del segnale\n", frequency);
         }
     }
 

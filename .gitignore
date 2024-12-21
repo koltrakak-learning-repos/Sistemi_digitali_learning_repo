@@ -1,0 +1,7 @@
+### Questi file pesano troppo e mi bloccano il push
+
+# Ignora tutti i file con estensione .wav
+*.wav
+
+# Ignora tutti i file con estensione .txt
+*.txt
