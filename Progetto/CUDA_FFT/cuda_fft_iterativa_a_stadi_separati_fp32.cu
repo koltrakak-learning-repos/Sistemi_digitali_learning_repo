@@ -334,11 +334,13 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMalloc(&d_input, N*sizeof(complex));
     cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
 
-    // // Configurazione dei blocchi e dei thread per il bit reversal
-    double start = cpuSecond();
+    // Configurazione dei blocchi e dei thread per il bit reversal
     int threads_per_block = 1024;
     int num_threads = N;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    double start = cpuSecond();
+    // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
     cudaDeviceSynchronize();
     printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
