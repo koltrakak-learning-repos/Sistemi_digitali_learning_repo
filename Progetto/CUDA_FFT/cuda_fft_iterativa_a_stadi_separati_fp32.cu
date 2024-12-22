@@ -319,6 +319,8 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         Typically, this stall occurs only when executing local or global memory instructions extremely frequently.
         
         AVOID REDUNDANT GLOBAL MEMORY ACCESSES.
+
+        Utilizzo shared memory forse?
     */
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
