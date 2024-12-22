@@ -469,8 +469,8 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 }
 
 int main() {
-    const char* FILE_NAME = "image_grayscale.png";
-    const int FATTORE_DI_COMPRESSIONE = 4000;
+    const char* FILE_NAME = "forme.png";
+    const int FATTORE_DI_COMPRESSIONE = 20000;
 
     // Load the image
     int width, height, channels;
