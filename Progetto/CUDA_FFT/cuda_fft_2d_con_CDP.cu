@@ -617,19 +617,24 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     return elapsed_gpu;
 }
 
-
 /*
-    Questo kernel sfrutta CDP
+    Questo kernel sfrutta CDP!
     Ogni thread che processa una riga, lancia a sua volta tutti i kernel necessari
-    per effettuare una trasformata 
+    per effettuare una trasformata.
 */
 __global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
+    int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
+    // int dim_riga = N; non metto questo alias perchè mi costa un registro -> diminuisce l'occupancy
 
-    fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    // cudaDeviceSynchronize();
-    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+    int num_stadi = (int)log2f((double)N);
 
-    // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
+    int threads_per_block = 256;
+    int num_threads = N;
+    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    // thread_id*N === indice di riga che deve trasformare il thread
+    fft_bit_reversal<<<num_blocks, threads_per_block>>>(&input[thread_id*N], &output[thread_id*N], N, num_stadi);
+
     threads_per_block = 256;
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
     num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
@@ -639,8 +644,7 @@ __global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
-        fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
-        // cudaDeviceSynchronize();
+        fft_stage<<<num_blocks, threads_per_block>>>(&output[thread_id*N], N, N_stadio_corrente, N_stadio_corrente_mezzi);
     }
 }
 
@@ -652,10 +656,10 @@ __global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
     Le chiamate a fft_iterativa_cuda sono SINCRONE a causa della sincronizzazione implicita 
     imposta dal default stream
 */
-double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
+double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
-    if (imageSize != row_size*column_size) {
-        fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
+    if (image_size != row_size*column_size) {
+        fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
 
         return -1;
     }
@@ -670,18 +674,29 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         return -1;
     }
 
+    // Alloca memoria sulla GPU
+    complex *d_input;
+    complex *d_output;
+    cudaMalloc(&d_output, image_size*sizeof(complex));
+    cudaMalloc(&d_input, image_size*sizeof(complex));
+    cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
+    
+    // Configurazione dei blocchi e dei thread per la trasformata delle righe
+    int threads_per_block = 256;
+    int num_threads = row_size;
+    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    printf("Configurazione lancio fft righe:\n\tthreads_per_block: %d\n\tnum_threads: %d\n\tnum_blocks: %d\n", threads_per_block, num_threads, num_blocks);
 
     double start = cpuSecond();
-    // FFT delle righe
-    for(int i = 0; i < imageSize; i += row_size) {
-        fft_iterativa_cuda(&input_image_data[i], &output_fft_2D_data[i], row_size);
-    }
+    fft_2D_kernel_righe<<<num_blocks, threads_per_block>>>(d_input, d_output, row_size);
+    cudaDeviceSynchronize();
+    cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
 
     /*
         A questo punto non ho neanche bisogno di questo
         cudaDeviceSynchronize();
     */
-
 
     // FFT delle colonne
     //      -> j indice di colonna
