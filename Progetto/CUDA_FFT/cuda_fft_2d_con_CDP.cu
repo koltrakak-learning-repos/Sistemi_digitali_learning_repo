@@ -617,6 +617,33 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     return elapsed_gpu;
 }
 
+
+/*
+    Questo kernel sfrutta CDP
+    Ogni thread che processa una riga, lancia a sua volta tutti i kernel necessari
+    per effettuare una trasformata 
+*/
+__global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
+
+    fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
+    // cudaDeviceSynchronize();
+    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+
+    // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
+    threads_per_block = 256;
+    num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
+    num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    // Lancia i kernel per ogni stadio
+    for (int stadio = 1; stadio <= num_stadi; stadio++) {
+        int N_stadio_corrente = 1 << stadio;
+        int N_stadio_corrente_mezzi = N_stadio_corrente/2;
+
+        fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
+        // cudaDeviceSynchronize();
+    }
+}
+
 /*
     Questo in realtà dovrebbe essere un kernel che:
         - lancia una griglia per trasformare le righe
