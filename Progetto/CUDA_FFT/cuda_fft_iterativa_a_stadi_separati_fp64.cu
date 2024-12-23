@@ -283,7 +283,6 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
     }
 }
 
-// Kernel che calcola una farfalla e la sua simmetrica 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -298,10 +297,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
 
-    /*
-        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
-        potrebbe essere precalcolare il vettore dei twiddle factor  
-    */
     double phi = (-2.0*PI/N_stadio_corrente) * j;
     complex twiddle_factor = {
         cos(phi),
