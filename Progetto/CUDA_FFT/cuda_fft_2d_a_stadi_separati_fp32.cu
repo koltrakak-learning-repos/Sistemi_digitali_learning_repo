@@ -31,6 +31,9 @@ typedef struct {
     float imag;
 } complex;
 
+/*
+    funzioni di utilità
+*/
 __host__ __device__ complex prodotto_tra_complessi(complex a, complex b) {
     complex result;
 
@@ -64,9 +67,6 @@ void checkResult(complex *hostRef, complex *gpuRef, const int N) {
         printf("Arrays match.\n\n");
 }
 
-
-
-
 // Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
 // dei campioni della trasformata in maniera efficiente O(log n), rispetto all'usare un ciclo O(n)
 //
@@ -97,21 +97,151 @@ __host__ __device__ uint32_t reverse_bits(uint32_t x) {
     return (x >> 16) | (x << 16);
 }
 
-void convert_to_complex(short *input, complex *output, int N) {
+void convert_to_complex(uint8_t *input, complex *output, int N) {
     for (int i = 0; i < N; i++) {
         output[i].real = (float)input[i];
         output[i].imag = 0.0;
     }
 }
 
-void convert_to_short(complex *input, short *output, int N) {
+void convert_to_uint8(complex *input, uint8_t *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i] = (short)round(input[i].real); 
+        output[i] = (uint8_t)round(input[i].real); 
     }
 }
 
+void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* height, int channels) {
+    if( !(*width & (*width - 1)) && !(*height & (*height - 1)) ) {
+        // sono già potenze di due
+        return;
+    }
+
+    // Calcola la dimensione "padded" (prossima potenza di 2)
+    int new_width   = 1 << (int)ceil(log2(*width));
+    int new_height  = 1 << (int)ceil(log2(*height));
+
+    // Alloca la nuova immagine con padding
+    int new_image_size = new_width * new_height * channels;
+    uint8_t* padded_image_data = (uint8_t*)malloc(new_image_size);
+    memset(padded_image_data, 0, new_image_size);
+
+    // Copia i dati dell'immagine originale nella nuova immagine con padding
+    for (int y = 0; y < *height; y++) {             
+        for (int x = 0; x < *width; x++) {          
+            for (int c = 0; c < channels; c++) { 
+                padded_image_data[(y*new_width + x) * channels + c] = (*input_image_data)[(y * (*width) + x) * channels + c];
+            }
+        }
+    }
+
+    
+    free(*input_image_data);
+    // aggiorno parametri per output
+    *width = new_width;
+    *height = new_height; 
+    *input_image_data = padded_image_data;
+}
+
+void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width, int* padded_height,
+                                  int original_width, int original_height, int channels) {
+    // Alloca memoria per l'immagine senza padding
+    int original_image_size = original_width * original_height * channels;
+    uint8_t* unpadded_image_data = (uint8_t*)malloc(original_image_size);
+
+    // Copia i dati dalla versione con padding alla versione originale
+    for (int y = 0; y < original_height; y++) {
+        for (int x = 0; x < original_width; x++) {
+            for (int c = 0; c < channels; c++) {
+                unpadded_image_data[(y * original_width + x) * channels + c] = (*input_image_data)[(y * (*padded_width) + x) * channels + c];
+            }
+        }
+    }
+
+    free(*input_image_data);
+    // Aggiorna i parametri di output
+    *padded_width = original_width;
+    *padded_height = original_height;
+    *input_image_data = unpadded_image_data;
+}
+
+float trova_max_ampiezza(complex *output_fft_2D_data, int image_size) {
+    float max = 0;
+
+    for (int i = 0; i < image_size; i++) {
+        float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        
+        if (amplitude > max) {
+            max = amplitude;
+        }
+    }
+
+    return max;
+}
+
+int comprimi_in_file_binario(complex *output_fft_2D_data, int image_size, int width, int height, float soglia, const char *filename) {
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "Errore nell'aprire il file per la scrittura\n");
+        return -1;
+    }
+
+    int conta = 0;
+    for (int i = 0; i < image_size; i++) {
+        float amplitude = sqrt(output_fft_2D_data[i].real*output_fft_2D_data[i].real + output_fft_2D_data[i].imag*output_fft_2D_data[i].imag);
+        
+        // Se l'ampiezza è maggiore della soglia, salviamo il campione
+        if (amplitude > soglia) {
+            // Scrivi indice del campione, parte reale e immaginaria nel file binario
+            fwrite(&i, sizeof(int), 1, file);
+            fwrite(&output_fft_2D_data[i].real, sizeof(float), 1, file);
+            fwrite(&output_fft_2D_data[i].imag, sizeof(float), 1, file);
+
+            conta++;
+        }
+    }
+
+    fclose(file);
+
+    printf("File compresso con successo!\n");
+    printf("\tL'immagine di dimensione %d byte è stata compressa in %d entry da 12 byte (%d byte)\n", image_size, conta, conta*12);
+    printf("\tGuadagno: %f\n", (float)image_size / (conta*12));
+
+    return 0;
+}
+
+int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_data, int width, int height) {
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL) {
+        fprintf(stderr, "Errore nell'aprire il file per la lettura\n");
+        return -1;
+    }
+
+    // Tutti i campioni sono di base nulli
+    for (int i = 0; i < width * height; i++) {
+        output_fft_2D_data[i].real = 0;
+        output_fft_2D_data[i].imag = 0;
+    }
+
+    int index;
+    float real, imag;
+    while (fread(&index, sizeof(int), 1, file) == 1 &&
+           fread(&real, sizeof(float), 1, file) == 1 &&
+           fread(&imag, sizeof(float), 1, file) == 1) {
+        
+        // Reinserisci il campione nella matrice FFT-2D
+        output_fft_2D_data[index].real = real;
+        output_fft_2D_data[index].imag = imag;
+    }
+
+    fclose(file);
+    printf("file decompresso con successo!\n");
+    return 0;
+}
 
 
+/*
+    funzioni per fft lato cpu
+*/
 int fft_iterativa(complex *input, complex *output, int N) {
     // N & (N - 1) = ...01000... & ...00111... = 0
     if (N & (N - 1)) {
@@ -150,7 +280,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
-    printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
+    // printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -350,7 +480,9 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 
 
 
-
+/*
+    funzioni per fft lato gpu
+*/
 __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -376,7 +508,6 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
     }
 }
 
-// Kernel che calcola una farfalla e la sua simmetrica 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -461,7 +592,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
     // cudaDeviceSynchronize();
-    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
@@ -486,8 +617,15 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     return elapsed_gpu;
 }
 
+/*
+    Questo in realtà dovrebbe essere un kernel che:
+        - lancia una griglia per trasformare le righe
+        - lancia  una griglia per trasformare le colonne
 
-int fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
+    Le chiamate a fft_iterativa_cuda sono SINCRONE a causa della sincronizzazione implicita 
+    imposta dal default stream
+*/
+double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
     if (imageSize != row_size*column_size) {
         fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
@@ -516,6 +654,7 @@ int fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imag
         Prima devo fare tutte le righe
     */
 
+    double start = cpuSecond();
     // FFT delle righe
     for(int i = 0; i < imageSize; i += row_size) {
         fft_iterativa_cuda(&input_image_data[i], &output_fft_2D_data[i], row_size);
@@ -550,8 +689,9 @@ int fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imag
             output_fft_2D_data[i * row_size + j] = colonna[i];
         }
     }
+    double elapsed_gpu = cpuSecond() - start;
 
-    return EXIT_SUCCESS;
+    return elapsed_gpu;
 }
 
 
@@ -568,60 +708,36 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const char* FILE_NAME = argv[1];
-    drwav wav_in;
-    
-    if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
-        fprintf(stderr, "Errore nell'aprire il file %s.wav.\n", FILE_NAME);
+    const char* FILE_NAME = "image_grayscale.png";
+    const int FATTORE_DI_COMPRESSIONE = 20000;
+
+    // Load the image
+    int width, height, channels;
+    uint8_t* input_image_data = stbi_load(FILE_NAME, &width, &height, &channels, 0);
+    if (!input_image_data) {
+        printf("Error loading image %s\n", FILE_NAME);
         return 1;
     }
+    printf("Image loaded: %dx%d with %d channels\n", width, height, channels);
+    // salvo le dimensioni originali per dopo
+    // int original_width = width;
+    // int original_height = height;
 
-    size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
-    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (double)num_samples/SAMPLE_RATE);
+    // importante avere come dimensioni potenze di 2 (per FFT)
+    pad_image_to_power_of_two(&input_image_data, &width, &height, channels);
+    printf("Image padded to: %dx%d\n", width, height);
 
-    // importante avere una potenza di 2
-    int padded_samples = 1 << (int)ceil(log2(num_samples));
-    if (padded_samples > num_samples) {
-        num_samples = padded_samples;
-    }
+    // allochiamo memoria per trasformata
+    int image_size = width * height * channels;
+    complex* complex_input_image_data = (complex*)malloc(sizeof(complex) * image_size);
+    convert_to_complex(input_image_data, complex_input_image_data, image_size);
+    complex* output_fft_2D_data = (complex*)malloc(sizeof(complex) * image_size);
 
-    /*
-        Alloco memoria per:
-            - campioni PCM a 16 bit del file di ingresso
-            - campioni PCM a 16 bit del file di ingresso convertiti in numeri complessi
-            - campioni della trasformata ottenuti con FFT
-    */
-    short* signal_samples = (short*)malloc(num_samples * sizeof(short));
-    if (signal_samples == NULL) {
-        fprintf(stderr, "Errore nell'allocazione della memoria.\n");
-        return 1;
-    }
-    complex* complex_signal_samples = (complex*)malloc(num_samples * sizeof(complex));
-    if (complex_signal_samples == NULL) {
-        fprintf(stderr, "Errore nell'allocazione della memoria.\n");
-        return 1;
-    }
-    complex* fft_samples = (complex*)malloc(num_samples * sizeof(complex));
-    if (fft_samples == NULL) {
-        fprintf(stderr, "Errore nell'allocazione della memoria.\n");
-        return 1;
-    }
-
-    // Lettura dei dati audio dal file di input
-    size_t frames_read = drwav_read_pcm_frames_s16(&wav_in, wav_in.totalPCMFrameCount, signal_samples);
-    if (frames_read != wav_in.totalPCMFrameCount) {
-        fprintf(stderr, "Errore durante la lettura dei dati audio.\n");
-        return 1;
-    }
-    drwav_uninit(&wav_in); 
-
-    // calcolo la FFT
-    convert_to_complex(signal_samples, complex_signal_samples, num_samples);
+    // calcolo la FFT 2D lato cpu
     double start = cpuSecond();
-    fft_iterativa(complex_signal_samples, fft_samples, num_samples);
+    fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
     double elapsed_host = cpuSecond() - start;
-
-
+    
 
 
 
@@ -638,9 +754,6 @@ int main(int argc, char **argv) {
 
 
 
-
-
-
     // Set up device
     int dev = 0;
     cudaDeviceProp deviceProp;
@@ -649,11 +762,11 @@ int main(int argc, char **argv) {
     CHECK(cudaSetDevice(dev));
 
     
-    complex* gpu_ref_fft_samples = (complex *)malloc(num_samples*sizeof(complex));
+    complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
     
-    double elapsed_device = fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples); 
+    double elapsed_device = fft_2D_cuda(complex_input_image_data, gpu_ref_output_fft_2D_data, image_size, width * channels, height);
     
-    checkResult(fft_samples, gpu_ref_fft_samples, num_samples);
+    checkResult(output_fft_2D_data, gpu_ref_output_fft_2D_data, image_size);
     printf("Host: %f ms\n", elapsed_host*1000);
     printf("Device: %f ms\n", elapsed_device*1000);
     printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
@@ -671,39 +784,37 @@ int main(int argc, char **argv) {
 
     
 
-    // inizializzazione dati
-    char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
-    sprintf(generated_filename, "GPU-IFFT-generated-%s", FILE_NAME);
-    // mi assicuro di non imbrogliare ricopiando i dati di prima
-    memset(signal_samples, 0, num_samples*sizeof(short));
-    memset(complex_signal_samples, 0, num_samples);
+    /* ----- COMPRESSIONE ----- */
 
-    // Preparazione del formato del file di output
-    drwav_data_format format_out;
-    format_out.container = drwav_container_riff;
-    format_out.format = DR_WAVE_FORMAT_PCM;
-    format_out.channels = 1;              // Mono
-    format_out.sampleRate = SAMPLE_RATE;  // Frequenza di campionamento
-    format_out.bitsPerSample = 16;        // 16 bit per campione
+    char COMPRESSED_FILE_NAME[256];
+    sprintf(COMPRESSED_FILE_NAME, "compressed_%s.myformat", FILE_NAME);
+    float max_ampiezza = trova_max_ampiezza(gpu_ref_output_fft_2D_data, image_size);
+    float soglia = max_ampiezza / FATTORE_DI_COMPRESSIONE; 
+    printf("\tsoglia di filtro: %f\n", soglia);
+    comprimi_in_file_binario(gpu_ref_output_fft_2D_data, image_size, width, height, soglia, COMPRESSED_FILE_NAME);
 
-    // Inizializzazione del file di output
-    drwav wav_out;
-    if (!drwav_init_file_write(&wav_out, generated_filename, &format_out, NULL)) {
-        fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
-        return 1;
-    }
+    /*  ----- DECOMPRESSIONE ----- */
+    memset(gpu_ref_output_fft_2D_data, 0, sizeof(complex) * image_size);
+    memset(complex_input_image_data, 0, sizeof(complex) * image_size);
+
+    decomprimi_in_campioni_fft_2D(COMPRESSED_FILE_NAME, gpu_ref_output_fft_2D_data, width, height);
+    ifft_2D(gpu_ref_output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
+
+    uint8_t* output_image_data = (uint8_t*)malloc(image_size);
+    convert_to_uint8(complex_input_image_data, output_image_data, image_size);
+
+    // unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
     
-    ifft_iterativa(gpu_ref_fft_samples, complex_signal_samples, num_samples);
-    convert_to_short(complex_signal_samples, signal_samples, num_samples);
+    // Save the decompressed image
+    char DECOMPRESSED_FILE_NAME[256];
+    sprintf(DECOMPRESSED_FILE_NAME, "decompressed_%s", FILE_NAME);
+    stbi_write_png(DECOMPRESSED_FILE_NAME, width, height, channels, output_image_data, width * channels);
+    printf("Output saved as: %s\n", DECOMPRESSED_FILE_NAME);
 
-    // Scrittura dei dati audio nel file di output
-    drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
-    drwav_uninit(&wav_out); // Chiusura del file di output
-
-    printf("File WAV %s creato con successo\n", generated_filename);
-
-    free(signal_samples);
-    free(complex_signal_samples);
-    free(fft_samples);
-    free(gpu_ref_fft_samples);
+    // Clean up
+    stbi_image_free(input_image_data);
+    free(complex_input_image_data);
+    free(output_image_data);
+    free(gpu_ref_output_fft_2D_data);
+    free(output_fft_2D_data);
 }
