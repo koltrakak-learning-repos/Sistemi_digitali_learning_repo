@@ -297,6 +297,8 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
+    // % forse è meglio evitare il modulo
+    // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
     /*
         TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
@@ -311,17 +313,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     complex a = output[k + j];
     complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
-    /*
-        OTTIMIZZAZIONE:
-    
-        On average, each warp of this kernel spends 17.2 cycles being stalled waiting for the L1 INSTRUCTION QUEUE
-        for local and global (LG) memory operations to be not full.
-        Typically, this stall occurs only when executing local or global memory instructions extremely frequently.
-        
-        AVOID REDUNDANT GLOBAL MEMORY ACCESSES.
-
-        Utilizzo shared memory forse?
-    */
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
     // simmetria
