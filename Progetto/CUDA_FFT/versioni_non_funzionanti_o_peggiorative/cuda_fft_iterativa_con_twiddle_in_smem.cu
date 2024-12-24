@@ -173,6 +173,10 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     sin(phi)
                 };
 
+                if( (k+j) == 1) {
+                    printf("\t\tCPU - farfalla 0 ha come twiddle: (%f, %f)\n", twiddle_factor.real, twiddle_factor.imag);
+                }
+
                 complex a = output[k + j];
                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
@@ -291,13 +295,10 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N/2) {
-        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
-    extern __shared__ float twiddle_factor_array[]; // grande N/2 (le altre N/2 rotazioni sono simmetriche)
-    twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[thread_id];
-    __syncthreads();
+    extern __shared__ complex twiddle_factor_array[]; // grande N/2 (le altre N/2 rotazioni sono simmetriche)
 
     // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
@@ -306,13 +307,20 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // % forse è meglio evitare il modulo
     // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
+    // carico la smem con il twiddle che questo thread dovrà usare
+    int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
+    twiddle_factor_array[twiddle_index] = d_twiddle_factor_array[twiddle_index];
+    __syncthreads();
+
+    if(j == 0) {
+        printf("\t\tGPU - farfalla 0 ha come twiddle: (%f, %f)\n", twiddle_factor_array[twiddle_index].real, twiddle_factor_array[twiddle_index].imag);
+    }
     /*
         float phi = (-2.0f*PI/N_stadio_corrente) * j;
 
         Ad ogni stadio l'angolo del twiddle raddoppia di dimensione:
             -> "twiddle_factor_array" va quindi indicizzato con j * 2^(num_stadi - stadio_corrente)
     */
-    int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
 
     complex a = output[k + j];
     complex b = prodotto_tra_complessi(twiddle_factor_array[twiddle_index], output[k + j + N_stadio_corrente_mezzi]);
@@ -324,17 +332,15 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
 
-void precalcola_twiddle_factors(int num_stadi, int N_mezzi, complex* twiddle_factor_array) {
+void precalcola_twiddle_factors(int N, complex* twiddle_factor_array) {
     // l'incremento minimo è quello dell'ultimo stadio
-    float phi_increment = -2.0f*PI/(1<<num_stadi); 
+    float phi_increment = -2.0f*PI/N; 
 
-    for(int i=0; i<N_mezzi; i++) {
-        twiddle_factor_array[i].real = __cosf(phi_increment * i);
-        twiddle_factor_array[i].imag = __sinf(phi_increment * i);
+    for(int i=0; i<N / 2; i++) {
+        twiddle_factor_array[i].real = (float)cos(phi_increment * i);
+        twiddle_factor_array[i].imag = (float)sin(phi_increment * i);
     }
 }
-    
-
 
 double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // Controllo che N sia una potenza di 2
@@ -360,12 +366,12 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     double start = cpuSecond();
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // precalcolo dei twiddle factor
     int smem_size = (N/2) * sizeof(complex);
     complex* twiddle_factor_array = (complex*)malloc(smem_size);
-    precalcola_twiddle_factors(num_stadi, N/2, twiddle_factor_array);
+    precalcola_twiddle_factors(N, twiddle_factor_array);
     
     complex* d_twiddle_factor_array;
     cudaMalloc(&d_twiddle_factor_array, smem_size);
@@ -388,8 +394,11 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
 
+    // cleanup
     cudaFree(d_input);
     cudaFree(d_output);
+    cudaFree(d_twiddle_factor_array);
+    free(twiddle_factor_array);
 
     return elapsed_gpu;
 }
