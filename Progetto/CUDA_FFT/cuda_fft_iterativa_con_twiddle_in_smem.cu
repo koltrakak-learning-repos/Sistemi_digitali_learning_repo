@@ -284,7 +284,9 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
 }
 
 // Kernel che calcola una farfalla e la sua simmetrica 
-__global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
+__global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi,
+                          int num_stadi, int stadio_corrente, complex* d_twiddle_factor_array) {
+
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
     // controllo se ci sono dei thread in eccesso
@@ -292,6 +294,10 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         // printf("\tsono un thread in eccesso\n");
         return;
     }
+
+    extern __shared__ float twiddle_factor_array[]; // grande N/2 (le altre N/2 rotazioni sono simmetriche)
+    twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[thread_id];
+    __syncthreads();
 
     // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
@@ -301,17 +307,15 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
     /*
-        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
-        potrebbe essere utile precalcolare il vettore dei twiddle factor  
+        float phi = (-2.0f*PI/N_stadio_corrente) * j;
+
+        Ad ogni stadio l'angolo del twiddle raddoppia di dimensione:
+            -> "twiddle_factor_array" va quindi indicizzato con j * 2^(num_stadi - stadio_corrente)
     */
-    float phi = (-2.0f*PI/N_stadio_corrente) * j;
-    complex twiddle_factor = {
-        __cosf(phi),
-        __sinf(phi)
-    };
+    int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
 
     complex a = output[k + j];
-    complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+    complex b = prodotto_tra_complessi(twiddle_factor_array[twiddle_index], output[k + j + N_stadio_corrente_mezzi]);
 
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
@@ -319,6 +323,18 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
+
+void precalcola_twiddle_factors(int num_stadi, int N_mezzi, complex* twiddle_factor_array) {
+    // l'incremento minimo è quello dell'ultimo stadio
+    float phi_increment = -2.0f*PI/(1<<num_stadi); 
+
+    for(int i=0; i<N_mezzi; i++) {
+        twiddle_factor_array[i].real = __cosf(phi_increment * i);
+        twiddle_factor_array[i].imag = __sinf(phi_increment * i);
+    }
+}
+    
+
 
 double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // Controllo che N sia una potenza di 2
@@ -344,21 +360,29 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     double start = cpuSecond();
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    cudaDeviceSynchronize();
     printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+
+    // precalcolo dei twiddle factor
+    int smem_size = (N/2) * sizeof(complex);
+    complex* twiddle_factor_array = (complex*)malloc(smem_size);
+    precalcola_twiddle_factors(num_stadi, N/2, twiddle_factor_array);
+    
+    complex* d_twiddle_factor_array;
+    cudaMalloc(&d_twiddle_factor_array, smem_size);
+    cudaMemcpy(d_twiddle_factor_array, twiddle_factor_array, smem_size, cudaMemcpyHostToDevice);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
     num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+    
 
     // Lancia i kernel per ogni stadio
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
-        fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
-        cudaDeviceSynchronize();
+        fft_stage<<<num_blocks, threads_per_block, smem_size>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi, num_stadi, stadio, d_twiddle_factor_array);
     }
 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
