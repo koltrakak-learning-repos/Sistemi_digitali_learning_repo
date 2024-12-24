@@ -608,6 +608,9 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         // cudaDeviceSynchronize();
     }
 
+    /*
+        questa memcopy la potrei fare solo alla fine
+    */ 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
 
@@ -693,7 +696,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const char* FILE_NAME = "image_grayscale.png";
+    const char* FILE_NAME = argv[1];
     const int FATTORE_DI_COMPRESSIONE = 20000;
 
     // Load the image
@@ -765,9 +768,13 @@ int main(int argc, char **argv) {
 
 
 
-    /* --- PARTE IFFT --- */
+    /* --- PARTE IFFT-2D --- */
 
     
+
+
+
+
 
     /* ----- COMPRESSIONE ----- */
 

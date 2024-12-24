@@ -621,6 +621,9 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     Questo kernel sfrutta CDP!
     Ogni thread che processa una riga, lancia a sua volta tutti i kernel necessari
     per effettuare una trasformata.
+
+    PEGGIORA LE PERFORMANCE!
+    Non provo neanche a scrivere quello per le colonne allora
 */
 __global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
@@ -646,6 +649,10 @@ __global__ void fft_2D_kernel_righe(complex *input, complex *output, int N) {
 
         fft_stage<<<num_blocks, threads_per_block>>>(&output[thread_id*N], N, N_stadio_corrente, N_stadio_corrente_mezzi);
     }
+
+    // questo non è necessario ma mi ha fatto capire che serve il flag 
+    // -D CUDA_FORCE_CDP1_IF_SUPPORTED quando uso CDP su colab... boh
+    // cudaDeviceSynchronize();
 }
 
 /*
@@ -686,7 +693,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     int num_threads = row_size;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
-    printf("Configurazione lancio fft righe:\n\tthreads_per_block: %d\n\tnum_threads: %d\n\tnum_blocks: %d\n", threads_per_block, num_threads, num_blocks);
+    // printf("Configurazione lancio fft righe:\n\tthreads_per_block: %d\n\tnum_threads: %d\n\tnum_blocks: %d\n", threads_per_block, num_threads, num_blocks);
 
     double start = cpuSecond();
     fft_2D_kernel_righe<<<num_blocks, threads_per_block>>>(d_input, d_output, row_size);
@@ -735,7 +742,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const char* FILE_NAME = "image_grayscale.png";
+    const char* FILE_NAME = argv[1];
     const int FATTORE_DI_COMPRESSIONE = 20000;
 
     // Load the image
