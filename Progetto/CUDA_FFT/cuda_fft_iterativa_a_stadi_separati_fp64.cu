@@ -320,7 +320,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         return 0;
     }
 
-    int num_stadi = (int)log2f((double)N);
+    int num_stadi = (int)log2((double)N);
 
     // Alloca memoria sulla GPU
     complex *d_input;

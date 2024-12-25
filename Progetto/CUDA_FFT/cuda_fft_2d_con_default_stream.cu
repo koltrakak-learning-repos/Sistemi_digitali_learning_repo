@@ -142,6 +142,14 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
     *input_image_data = padded_image_data;
 }
 
+void trasponi_matrice(complex *input, complex *output, const int W, const int H) {
+    for(int i=0; i<H; i++) {
+        for(int j=0; j<W; j++) {
+            output[j*H + i] = input[i*W + j];
+        }   
+    }
+}
+
 void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width, int* padded_height,
                                   int original_width, int original_height, int channels) {
     // Alloca memoria per l'immagine senza padding
@@ -405,30 +413,25 @@ int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize
         return -1;
     }
 
+    // qua utilizzo delle variabili di appoggio dato che non posso modificare input_image_data
+    // siccome nel main viene riutilizzata dalla GPU
+    complex* temp_trasformata_righe = (complex*)malloc(imageSize*sizeof(complex)); 
+    complex* temp_trasposta         = (complex*)malloc(imageSize*sizeof(complex)); 
 
     // FFT delle righe
     for(int i = 0; i < imageSize; i += row_size) {
-        fft_iterativa(&input_image_data[i], &output_fft_2D_data[i], row_size);
+        fft_iterativa(&input_image_data[i], &temp_trasformata_righe[i], row_size);
     }
+
+    trasponi_matrice(temp_trasformata_righe, temp_trasposta, row_size, column_size);
 
     // FFT delle colonne
-    //      -> j indice di colonna
-    //      -> i indice di riga
-    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
-        // mi costruisco la colonna
-        //      -> il passo è row size;
-        //      -> devo poi fare column_size passi
-        complex colonna[column_size];
-        for(int i = 0; i < column_size; i++) {
-            colonna[i] = output_fft_2D_data[i * row_size + j];
-        }
-
-        fft_iterativa(colonna, colonna, column_size);
-
-        for(int i = 0; i < column_size; i++) {
-            output_fft_2D_data[i * row_size + j] = colonna[i];
-        }
+    for(int j = 0; j < imageSize; j+=column_size) {     // scorro tutte le colonne
+        fft_iterativa(&temp_trasposta[j], &output_fft_2D_data[j], column_size);
     }
+
+    free(temp_trasformata_righe);
+    free(temp_trasposta);
 
     return EXIT_SUCCESS;
 }
@@ -451,33 +454,20 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
         return -1;
     }
 
-
     // IFFT delle colonne
-    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
-        // mi costruisco la colonna
-        //      -> il passo è row size;
-        //      -> devo poi fare column_size passi
-        complex colonna[column_size];
-        for(int i = 0; i < column_size; i++) {
-            colonna[i] = input_fft_2D_data[i * row_size + j];
-        }
-
-        ifft_iterativa(colonna, colonna, column_size);
-        for(int i = 0; i < column_size; i++) {
-            output_image_data[i*row_size + j] = colonna[i];
-        }
+    for(int j = 0; j < imageSize; j+=column_size) {     
+        ifft_iterativa(&input_fft_2D_data[j], &output_image_data[j], column_size);
     }
 
+    trasponi_matrice(output_image_data, input_fft_2D_data, row_size, column_size);
+
     // IFFT delle righe
-    //      -> j indice di colonna
-    //      -> i indice di riga
     for(int i = 0; i < imageSize; i += row_size) {
-        ifft_iterativa(&output_image_data[i], &output_image_data[i], row_size);
+        ifft_iterativa(&input_fft_2D_data[i], &output_image_data[i], row_size);
     }
 
     return EXIT_SUCCESS;
 }
-
 
 
 /*
@@ -553,7 +543,19 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
 
-double fft_iterativa_cuda(complex *input, complex *output, int N) {
+__global__ void trasponi_matrice_kernel(complex *input, complex *output, const int W, const int H) {
+    unsigned int ix = blockDim.x * blockIdx.x + threadIdx.x;
+    unsigned int iy = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (ix < W && iy < H) {
+        output[iy*W + ix] = input[ix*H + iy]; // Lettura con stride, scrittura coalescente
+    }
+}
+
+/*
+    NB: questa funzione accetta solo riferimenti al device 
+*/
+double fft_iterativa_cuda(complex *d_input, complex *d_output, int N) {
     // Controllo che N sia una potenza di 2
     if (N & (N - 1)) {
         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
@@ -561,21 +563,15 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     }
 
     int num_stadi = (int)log2f((double)N);
-
-    // Alloca memoria sulla GPU
-    complex *d_input;
-    complex *d_output;
-    cudaMalloc(&d_output, N*sizeof(complex));
-    cudaMalloc(&d_input, N*sizeof(complex));
-    cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
     
+    double start = cpuSecond();
     // Configurazione dei blocchi e dei thread per il bit reversal
     int threads_per_block = 256;
     int num_threads = N;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
     /*
-        A QUANTO PARE NON HO BISOGNO DI SINCRONIZZARE A CAUSA DEL DEFAULT STREAM!!!
+        A QUANTO PARE NON HO BISOGNO DI SINCRONIZZARE ESPLICITAMENTE A CAUSA DEL DEFAULT STREAM!!!
 
         Ordine di esecuzione seriale:
             - Tutti i kernel lanciati nel Default Stream vengono eseguiti in ordine di lancio.
@@ -587,12 +583,10 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
               Questo significa che un'operazione di copia, ad esempio, non inizierà finché tutti i kernel precedenti
               nel Default Stream non saranno completati.
     */
-
-    double start = cpuSecond();
+    
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
     // cudaDeviceSynchronize();
-    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
@@ -607,31 +601,19 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
         // cudaDeviceSynchronize();
     }
-
-    /*
-        questa memcopy la potrei fare solo alla fine
-    */ 
-    cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
-
-    cudaFree(d_input);
-    cudaFree(d_output);
 
     return elapsed_gpu;
 }
 
 /*
-    Questo in realtà dovrebbe essere un kernel che:
-        - lancia una griglia per trasformare le righe
-        - lancia  una griglia per trasformare le colonne
-
-    Le chiamate a fft_iterativa_cuda sono SINCRONE a causa della sincronizzazione implicita 
+    Le chiamate a fft_iterativa_cuda sono SINCRONE con la GPU a causa della sincronizzazione implicita 
     imposta dal default stream
 */
-double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
+double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
-    if (imageSize != row_size*column_size) {
-        fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
+    if (image_size != row_size*column_size) {
+        fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
 
         return -1;
     }
@@ -646,38 +628,43 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         return -1;
     }
 
+    // Alloca memoria sulla GPU
+    complex* d_input;
+    complex* d_output;
+    cudaMalloc(&d_input, image_size*sizeof(complex));
+    cudaMalloc(&d_output, image_size*sizeof(complex));
+    // Faccio un unico grande trasferimento
+    cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
 
     double start = cpuSecond();
+
     // FFT delle righe
-    for(int i = 0; i < imageSize; i += row_size) {
-        fft_iterativa_cuda(&input_image_data[i], &output_fft_2D_data[i], row_size);
+    for(int i = 0; i < image_size; i+=row_size) {
+        fft_iterativa_cuda(&d_input[i], &d_output[i], row_size);
     }
 
     /*
-        A questo punto non ho neanche bisogno di questo
-        cudaDeviceSynchronize();
+        Per fare la FFT delle colonne prima faccio la trasposta della matrice
     */
 
+    int block_dimx = 32; 
+    int block_dimy = 32;
+    dim3 block(block_dimx, block_dimy);
+    dim3 grid((row_size + block.x - 1) / block.x, (column_size + block.y - 1) / block.y);
+    trasponi_matrice_kernel<<<grid, block>>>(d_output, d_input, row_size, column_size);
 
+    
     // FFT delle colonne
-    //      -> j indice di colonna
-    //      -> i indice di riga
-    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
-        // mi costruisco la colonna
-        //      -> il passo è row size;
-        //      -> devo poi fare column_size passi
-        complex colonna[column_size];
-        for(int i = 0; i < column_size; i++) {
-            colonna[i] = output_fft_2D_data[i * row_size + j];
-        }
-
-        fft_iterativa_cuda(colonna, colonna, column_size);
-
-        for(int i = 0; i < column_size; i++) {
-            output_fft_2D_data[i * row_size + j] = colonna[i];
-        }
+    for(int j = 0; j<image_size; j+=column_size) {     
+        fft_iterativa_cuda(&d_input[j], &d_output[j], column_size);
     }
+
+    // Faccio un unico grande trasferimento
+    cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
+
+    cudaFree(d_input);
+    cudaFree(d_output);
 
     return elapsed_gpu;
 }

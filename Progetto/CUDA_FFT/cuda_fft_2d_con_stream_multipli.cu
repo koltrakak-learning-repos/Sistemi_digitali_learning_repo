@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include <cuda_runtime.h>
 
 // Include STB image libraries
 #define STB_IMAGE_IMPLEMENTATION
@@ -9,16 +10,31 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-
 #define SAMPLE_RATE 44100
-#define PI 3.14159265358979323846
+//#define PI 3.14159265358979323846
+#define PI 3.14159265359f
+
+
+#define CHECK(call) \
+{ \
+    const cudaError_t error = call; \
+    if (error != cudaSuccess) \
+    { \
+        printf("Error: %s:%d, ", __FILE__, __LINE__); \
+        printf("code: %d, reason: %s\n", error, cudaGetErrorString(error)); \
+        exit(1); \
+    } \
+}
 
 typedef struct {
     float real;
     float imag;
 } complex;
 
-complex prodotto_tra_complessi(complex a, complex b) {
+/*
+    funzioni di utilità
+*/
+__host__ __device__ complex prodotto_tra_complessi(complex a, complex b) {
     complex result;
 
     result.real = a.real*b.real - a.imag*b.imag;
@@ -27,11 +43,36 @@ complex prodotto_tra_complessi(complex a, complex b) {
     return result;
 }
 
-// Funzione strana che ho trovato, che mi permette di ottenere il bit reverse order degli indici
-// dei campioni della trasformata  in maniera efficiente O(log n).
+double cpuSecond() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return ((double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9);
+}
+
+void checkResult(complex *hostRef, complex *gpuRef, const int N) {
+    // epsilon molto largo. Non so perchè la versione GPU differisce rispetto a quella CPU verso la quinta cifra decimale
+    double epsilon = 1.0E-4;    
+    bool match = 1;
+
+    for (int i = 0; i < N; i++) {
+        if (fabs(hostRef[i].real - gpuRef[i].real) > epsilon || fabs(hostRef[i].imag - gpuRef[i].imag) > epsilon) {
+            match = 0;
+            printf("Arrays do not match!\n");
+            printf("host (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
+            break;
+        }
+    }
+
+    if (match)
+        printf("Arrays match.\n\n");
+}
+
+// Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
+// dei campioni della trasformata in maniera efficiente O(log n), rispetto all'usare un ciclo O(n)
+//
 // es. indice a 8 bit = 5:
-//  5 = 00000101   ->  reversed = 10100000 = 160 
-uint32_t reverse_bits(uint32_t x) {
+//      5 = 00000101   ->  reversed = 10100000 = 160 
+__host__ __device__ uint32_t reverse_bits(uint32_t x) {
     // 1. Swap the position of consecutive bits
     // 2. Swap the position of consecutive pairs of bits
     // 3. Swap the position of consecutive quads of bits
@@ -101,14 +142,6 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
     *input_image_data = padded_image_data;
 }
 
-void trasponi_matrice(complex *input, complex *output, const int W, const int H) {
-    for(int i=0; i<H; i++) {
-        for(int j=0; j<W; j++) {
-            output[j*H + i] = input[i*W + j];
-        }   
-    }
-}
-
 void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width, int* padded_height,
                                   int original_width, int original_height, int channels) {
     // Alloca memoria per l'immagine senza padding
@@ -129,43 +162,6 @@ void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width,
     *padded_width = original_width;
     *padded_height = original_height;
     *input_image_data = unpadded_image_data;
-}
-
-// float calcola_frequenze_2D(int kx, int ky, int width, int height) {
-//     /*
-//         Secondo: https://dsp.stackexchange.com/questions/22661/how-do-i-obtain-the-frequencies-of-each-value-in-a-2d-fft-and-what-do-they-mean 
-//         La frequenza di una componente della fft-2D si calcola così.
-//     */
-
-//     // Frequenze 1D lungo x e y
-//     float f_x = (float)kx / width;
-//     float f_y = (float)ky / height;
-
-//     // Frequenza spaziale combinata
-//     float f_xy = sqrt(f_x*f_x + f_y*f_y);
-
-//     return f_xy;
-// }
-
-float calcola_frequenze_2D(int kx, int ky, int width, int height) {
-    // A quanto pare bisogna effettuare una "centralizzazione degli indici"...
-    // Non so cosa significhi ma adesso ho dei valori più sensati
-
-    if (kx >= width / 2) {
-        kx -= width;  // Mappare gli indici da -width/2 a +width/2
-    }
-    if (ky >= height / 2) {
-        ky -= height;  // Mappare gli indici da -height/2 a +height/2
-    }
-
-    // Frequenze 1D lungo x e y
-    float f_x = (float)kx / width;
-    float f_y = (float)ky / height;
-
-    // Frequenza spaziale combinata (modulo)
-    float f_xy = sqrt(f_x * f_x + f_y * f_y);
-
-    return f_xy;
 }
 
 float trova_max_ampiezza(complex *output_fft_2D_data, int image_size) {
@@ -227,7 +223,7 @@ int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_d
     }
 
     int index;
-    float i, real, imag;
+    float real, imag;
     while (fread(&index, sizeof(int), 1, file) == 1 &&
            fread(&real, sizeof(float), 1, file) == 1 &&
            fread(&imag, sizeof(float), 1, file) == 1) {
@@ -242,6 +238,10 @@ int decomprimi_in_campioni_fft_2D(const char *filename, complex *output_fft_2D_d
     return 0;
 }
 
+
+/*
+    funzioni per fft lato cpu
+*/
 int fft_iterativa(complex *input, complex *output, int N) {
     // N & (N - 1) = ...01000... & ...00111... = 0
     if (N & (N - 1)) {
@@ -257,6 +257,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
     // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
     // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
     // che avviene in modo esplicito nella versione ricorsiva.
+    double start = cpuSecond();
     for (uint32_t i = 0; i < N; i++) {
         uint32_t rev = reverse_bits(i);
         // Non faccio un bit reversal completo ma uno parziale che 
@@ -266,7 +267,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
 
         /*
             Per comodità ho aggiunto questo controllo che mi permette di fare delle
-            trasformazioni inplace
+            trasformazioni inplace se input == output
         */
         if(input == output) {
             if (i < rev) {  
@@ -279,6 +280,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
+    // printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -287,6 +289,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
         int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
         // Itera sull'array di output con passi pari a N_stadio_corrente
+        // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
             /*
@@ -294,8 +297,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     - output[k...N/2-1] sono le componenti della trasformata pari, mentre
                       output[N/2...N-1] sono le componenti della trasformata dispari.
                         - Guarda diagramma a farfalla. 
-                    
-                    ...
+                    - j = offset all'interno del blocco di farfalle considerato
             */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 float phi = (-2*PI/N_stadio_corrente) * j; 
@@ -385,10 +387,10 @@ int ifft_iterativa(complex *input, complex *output, int N) {
     return EXIT_SUCCESS;
 }
 
-int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize, int row_size, int column_size) {
+int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
-    if (imageSize != row_size*column_size) {
-        fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
+    if (image_size != row_size*column_size) {
+        fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
 
         return -1;
     }
@@ -405,24 +407,36 @@ int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize
 
 
     // FFT delle righe
-    for(int i = 0; i < imageSize; i += row_size) {
+    for(int i = 0; i < image_size; i += row_size) {
         fft_iterativa(&input_image_data[i], &output_fft_2D_data[i], row_size);
     }
 
-    trasponi_matrice(output_fft_2D_data, input_image_data, row_size, column_size);
-
     // FFT delle colonne
-    for(int j = 0; j < imageSize; j+=column_size) {     // scorro tutte le colonne
-        fft_iterativa(&input_image_data[j], &output_fft_2D_data[j], column_size);
+    //      -> j indice di colonna
+    //      -> i indice di riga
+    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
+        // mi costruisco la colonna
+        //      -> il passo è row size;
+        //      -> devo poi fare column_size passi
+        complex colonna[column_size];
+        for(int i = 0; i < column_size; i++) {
+            colonna[i] = output_fft_2D_data[i * row_size + j];
+        }
+
+        fft_iterativa(colonna, colonna, column_size);
+
+        for(int i = 0; i < column_size; i++) {
+            output_fft_2D_data[i * row_size + j] = colonna[i];
+        }
     }
 
     return EXIT_SUCCESS;
 }
 
-int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSize, int row_size, int column_size) {
+int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int image_size, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
-    if (imageSize != row_size*column_size) {
-        fprintf(stderr, "imageSize=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", imageSize);
+    if (image_size != row_size*column_size) {
+        fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
 
         return -1;
     }
@@ -438,22 +452,217 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
     }
 
     // IFFT delle colonne
-    for(int j = 0; j < imageSize; j+=column_size) {     
-        ifft_iterativa(&input_fft_2D_data[j], &output_image_data[j], column_size);
+    for(int j = 0; j < row_size; j++) {     // scorro tutte le colonne
+        // mi costruisco la colonna
+        //      -> il passo è row size;
+        //      -> devo poi fare column_size passi
+        complex colonna[column_size];
+        for(int i = 0; i < column_size; i++) {
+            colonna[i] = input_fft_2D_data[i * row_size + j];
+        }
+
+        ifft_iterativa(colonna, colonna, column_size);
+        for(int i = 0; i < column_size; i++) {
+            output_image_data[i*row_size + j] = colonna[i];
+        }
     }
 
-    trasponi_matrice(output_image_data, input_fft_2D_data, row_size, column_size);
-
     // IFFT delle righe
-    for(int i = 0; i < imageSize; i += row_size) {
-        ifft_iterativa(&input_fft_2D_data[i], &output_image_data[i], row_size);
+    //      -> j indice di colonna
+    //      -> i indice di riga
+    for(int i = 0; i < image_size; i += row_size) {
+        ifft_iterativa(&output_image_data[i], &output_image_data[i], row_size);
     }
 
     return EXIT_SUCCESS;
 }
 
-int main() {
-    const char* FILE_NAME = "image_grayscale.png";
+
+/*
+    funzioni per fft lato gpu
+*/
+__global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
+    uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
+
+    // controllo se ci sono dei thread in eccesso
+    if (thread_id >= N) {
+        // printf("\tsono un thread in eccesso\n");
+        return;
+    }
+
+    // Copia input nell'output con bit-reversal (stadio 0)
+    uint32_t rev = reverse_bits(thread_id);
+    rev = rev >> (32 - num_stadi);
+
+    if(input == output) {
+        if (thread_id < rev) {  
+            complex temp = input[thread_id];
+            output[thread_id] = input[rev];
+            output[rev] = temp;
+        }
+    }
+    else {
+        output[thread_id] = input[rev];
+    }
+}
+
+__global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
+    int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
+
+    // controllo se ci sono dei thread in eccesso
+    if (thread_id >= N/2) {
+        // printf("\tsono un thread in eccesso\n");
+        return;
+    }
+
+    // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
+    int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
+    // Offset all'interno del blocco di farfalle considerato
+    int j = thread_id % N_stadio_corrente_mezzi;
+
+    /*
+        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
+        potrebbe essere precalcolare il vettore dei twiddle factor  
+    */
+    float phi = (-2.0f*PI/N_stadio_corrente) * j;
+    complex twiddle_factor = {
+        __cosf(phi),
+        __sinf(phi)
+    };
+
+    complex a = output[k + j];
+    complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+
+    output[k + j].real = a.real + b.real;
+    output[k + j].imag = a.imag + b.imag;
+    // simmetria
+    output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
+    output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+}
+
+double fft_iterativa_cuda(complex *input, complex *output, int N, cudaStream_t stream) {
+    // Controllo che N sia una potenza di 2
+    if (N & (N - 1)) {
+        fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
+        return 0;
+    }
+
+    int num_stadi = (int)log2f((double)N);
+    
+    double start = cpuSecond();
+    // Configurazione dei blocchi e dei thread per il bit reversal
+    int threads_per_block = 256;
+    int num_threads = N;
+    int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+    
+    // stadio 0
+    fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
+
+    // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
+    threads_per_block = 256;
+    num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
+    num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    // Lancia i kernel per ogni stadio
+    for (int stadio = 1; stadio <= num_stadi; stadio++) {
+        int N_stadio_corrente = 1 << stadio;
+        int N_stadio_corrente_mezzi = N_stadio_corrente/2;
+
+        fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
+    }
+
+    double elapsed_gpu = cpuSecond() - start;
+
+    return elapsed_gpu;
+}
+
+double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size, int num_streams) {
+    // Le dimensioni dei dati devono essere potenze di due
+    if (image_size != row_size*column_size) {
+        fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
+
+        return -1;
+    }
+    if (row_size & (row_size - 1)) {
+        fprintf(stderr, "row_size=%u deve essere una potenza di due\n", row_size);
+
+        return -1;
+    }
+    if (column_size & (column_size - 1)) {
+        fprintf(stderr, "column_size=%u deve essere una potenza di due\n", column_size);
+
+        return -1;
+    }
+
+    // Alloca memoria sulla GPU
+    complex *d_input;
+    complex *d_output;
+    cudaMalloc(&d_input, image_size*sizeof(complex));
+    cudaMalloc(&d_output, image_size*sizeof(complex));
+    // Faccio un unico grande trasferimento
+    cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
+
+    // Creo 'num_streams' stream
+    cudaStream_t *streams = (cudaStream_t *)malloc(num_streams * sizeof(cudaStream_t));
+    for (int i = 0 ; i < num_streams; i++) {
+        cudaStreamCreate(&streams[i]);
+    }
+
+    double start = cpuSecond();
+    // FFT delle righe
+    for(int i = 0; i < image_size; i += row_size) {
+        fft_iterativa_cuda(&d_input[i], &d_output[i], row_size, streams[i%num_streams]);
+    }
+
+    // Attendo la fine di ogni stream
+    for (int i=0; i<num_streams; i++) {
+        cudaStreamSynchronize(streams[i]);
+    }
+    
+    // FFT delle colonne
+    for(int j = 0; j < row_size; j++) {
+        complex colonna[column_size];
+        for(int i = 0; i < column_size; i++) {
+            colonna[i] = d_output[i*row_size + j];
+        }
+
+        fft_iterativa(colonna, colonna, column_size/*, streams[j%num_streams]*/);
+
+        for(int i = 0; i < column_size; i++) {
+            d_output[i*row_size + j] = colonna[i];
+        }
+    }
+
+    // Attendo la fine di ogni stream
+    for (int i=0; i<num_streams; i++) {
+        cudaStreamSynchronize(streams[i]);
+    }
+
+    // Faccio un unico grande trasferimento
+    cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
+    double elapsed_gpu = cpuSecond() - start;
+
+    cudaFree(d_input);
+    cudaFree(d_output);
+
+    return elapsed_gpu;
+}
+
+
+
+
+
+
+
+
+
+int main(int argc, char **argv) {
+    if (argc < 2) {
+        printf("Usage: %s <file_name>\n", argv[0]);
+        return 1;
+    }
+
+    const char* FILE_NAME = argv[1];
     const int FATTORE_DI_COMPRESSIONE = 20000;
 
     // Load the image
@@ -465,8 +674,8 @@ int main() {
     }
     printf("Image loaded: %dx%d with %d channels\n", width, height, channels);
     // salvo le dimensioni originali per dopo
-    int original_width = width;
-    int original_height = height;
+    // int original_width = width;
+    // int original_height = height;
 
     // importante avere come dimensioni potenze di 2 (per FFT)
     pad_image_to_power_of_two(&input_image_data, &width, &height, channels);
@@ -478,24 +687,76 @@ int main() {
     convert_to_complex(input_image_data, complex_input_image_data, image_size);
     complex* output_fft_2D_data = (complex*)malloc(sizeof(complex) * image_size);
 
+    // calcolo la FFT 2D lato cpu
+    double start = cpuSecond();
+    fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
+    double elapsed_host = cpuSecond() - start;
+    
+
+
+
+
+
+
+
+    /* ESECUZIONE CON GPU */
+
+
+
+
+
+
+
+
+    // Set up device
+    int dev = 0;
+    cudaDeviceProp deviceProp;
+    CHECK(cudaGetDeviceProperties(&deviceProp, dev));
+    printf("Using Device %d: %s\n", dev, deviceProp.name);
+    CHECK(cudaSetDevice(dev));
+
+    
+    complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
+    
+    double elapsed_device = fft_2D_cuda(complex_input_image_data, gpu_ref_output_fft_2D_data, image_size, width * channels, height);
+    
+    checkResult(output_fft_2D_data, gpu_ref_output_fft_2D_data, image_size);
+    printf("Host: %f ms\n", elapsed_host*1000);
+    printf("Device: %f ms\n", elapsed_device*1000);
+    printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
+
+
+
+
+
+
+
+
+
+
+    /* --- PARTE IFFT-2D --- */
+
+    
+
+
+
+
 
     /* ----- COMPRESSIONE ----- */
-    fft_2D(complex_input_image_data, output_fft_2D_data, image_size, width * channels, height);
-    
 
     char COMPRESSED_FILE_NAME[256];
     sprintf(COMPRESSED_FILE_NAME, "compressed_%s.myformat", FILE_NAME);
-    float max_ampiezza = trova_max_ampiezza(output_fft_2D_data, image_size);
+    float max_ampiezza = trova_max_ampiezza(gpu_ref_output_fft_2D_data, image_size);
     float soglia = max_ampiezza / FATTORE_DI_COMPRESSIONE; 
     printf("\tsoglia di filtro: %f\n", soglia);
-    comprimi_in_file_binario(output_fft_2D_data, image_size, width, height, soglia, COMPRESSED_FILE_NAME);
+    comprimi_in_file_binario(gpu_ref_output_fft_2D_data, image_size, width, height, soglia, COMPRESSED_FILE_NAME);
 
     /*  ----- DECOMPRESSIONE ----- */
-    memset(output_fft_2D_data, 0, sizeof(complex) * image_size);
+    memset(gpu_ref_output_fft_2D_data, 0, sizeof(complex) * image_size);
     memset(complex_input_image_data, 0, sizeof(complex) * image_size);
 
-    decomprimi_in_campioni_fft_2D(COMPRESSED_FILE_NAME, output_fft_2D_data, width, height);
-    ifft_2D(output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
+    decomprimi_in_campioni_fft_2D(COMPRESSED_FILE_NAME, gpu_ref_output_fft_2D_data, width, height);
+    ifft_2D(gpu_ref_output_fft_2D_data, complex_input_image_data, image_size, width * channels, height);
 
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
@@ -510,5 +771,8 @@ int main() {
 
     // Clean up
     stbi_image_free(input_image_data);
+    free(complex_input_image_data);
     free(output_image_data);
+    free(gpu_ref_output_fft_2D_data);
+    free(output_fft_2D_data);
 }
