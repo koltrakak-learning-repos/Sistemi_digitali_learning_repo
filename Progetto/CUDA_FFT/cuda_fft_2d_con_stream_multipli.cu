@@ -722,6 +722,20 @@ int main(int argc, char **argv) {
     printf("Using Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
+    printf("\nCUDA System Information:\n");
+    printf("CUDA Driver Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
+    printf("CUDA Runtime Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
+    printf("\t1. Compute Capability: %d.%d\n", deviceProp.major, deviceProp.minor);
+    printf("\t2. Total Global Memory: %.2f GB\n", deviceProp.totalGlobalMem / (1024.0 * 1024.0 * 1024.0));
+    printf("\t3. Number of Multiprocessors: %d\n", deviceProp.multiProcessorCount);
+    printf("\t\t4. Maximum number of blocks per MultiProcessor: %d\n", deviceProp.maxBlocksPerMultiProcessor);
+    printf("\t\t5. Maximum number of threads per MultiProcessor: %d\n", deviceProp.maxThreadsPerMultiProcessor);
+    printf("\t8. Shared Memory per Block: %lu KB\n", deviceProp.sharedMemPerBlock / 1024);
+    printf("\t9. Maximum Threads per Block: %d\n", deviceProp.maxThreadsPerBlock);
+    printf("\t10. Maximum Grid Dimensions: (%d, %d, %d)\n", deviceProp.maxGridSize[0], deviceProp.maxGridSize[1], deviceProp.maxGridSize[2]);
+    printf("\t11. Maximum Block Dimensions: (%d, %d, %d)\n", deviceProp.maxThreadsDim[0], deviceProp.maxThreadsDim[1], deviceProp.maxThreadsDim[2]);
+    printf("\t12. Maximum number of concurrent kernels: %d\n\n", deviceProp.concurrentKernels);
+
     
     complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
     
