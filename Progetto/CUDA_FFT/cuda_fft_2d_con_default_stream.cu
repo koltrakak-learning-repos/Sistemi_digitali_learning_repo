@@ -142,14 +142,6 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
     *input_image_data = padded_image_data;
 }
 
-void trasponi_matrice(complex *input, complex *output, const int W, const int H) {
-    for(int i=0; i<H; i++) {
-        for(int j=0; j<W; j++) {
-            output[j*H + i] = input[i*W + j];
-        }   
-    }
-}
-
 void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width, int* padded_height,
                                   int original_width, int original_height, int channels) {
     // Alloca memoria per l'immagine senza padding
@@ -170,6 +162,14 @@ void unpad_image_to_original_size(uint8_t** input_image_data, int* padded_width,
     *padded_width = original_width;
     *padded_height = original_height;
     *input_image_data = unpadded_image_data;
+}
+
+void trasponi_matrice(complex *input, complex *output, const int W, const int H) {
+    for(int i=0; i<H; i++) {
+        for(int j=0; j<W; j++) {
+            output[j*H + i] = input[i*W + j];
+        }   
+    }
 }
 
 float trova_max_ampiezza(complex *output_fft_2D_data, int image_size) {
@@ -643,16 +643,12 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         fft_iterativa_cuda(&d_input[i], &d_output[i], row_size);
     }
 
-    /*
-        Per fare la FFT delle colonne prima faccio la trasposta della matrice
-    */
-
+    // Per fare la FFT delle colonne prima faccio la trasposta della matrice
     int block_dimx = 32; 
     int block_dimy = 32;
     dim3 block(block_dimx, block_dimy);
     dim3 grid((row_size + block.x - 1) / block.x, (column_size + block.y - 1) / block.y);
     trasponi_matrice_kernel<<<grid, block>>>(d_output, d_input, row_size, column_size);
-
     
     // FFT delle colonne
     for(int j = 0; j<image_size; j+=column_size) {     
