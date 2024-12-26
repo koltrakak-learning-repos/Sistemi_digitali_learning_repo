@@ -304,7 +304,8 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
         potrebbe essere utile precalcolare il vettore dei twiddle factor  
     */
-    float phi = (-2.0f*PI/N_stadio_corrente) * j;
+   
+    float phi = __fdividef(-2.0f*PI, N_stadio_corrente) * j;
     complex twiddle_factor = {
         __cosf(phi),
         __sinf(phi)

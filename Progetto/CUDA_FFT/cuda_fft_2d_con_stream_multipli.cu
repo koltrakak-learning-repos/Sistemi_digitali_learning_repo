@@ -470,7 +470,6 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 }
 
 
-
 /*
     funzioni per fft lato gpu
 */
@@ -517,7 +516,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
         potrebbe essere precalcolare il vettore dei twiddle factor  
     */
-    float phi = (-2.0f*PI/N_stadio_corrente) * j;
+    float phi = __fdividef(-2.0f*PI, N_stadio_corrente) * j;
     complex twiddle_factor = {
         __cosf(phi),
         __sinf(phi)
@@ -561,6 +560,7 @@ double fft_iterativa_cuda(complex *d_input, complex *d_output, int N, int thread
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block, 0, stream>>>(d_input, d_output, N, num_stadi);
+    CHECK(cudaGetLastError());  
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
@@ -571,6 +571,7 @@ double fft_iterativa_cuda(complex *d_input, complex *d_output, int N, int thread
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
         fft_stage<<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
+        CHECK(cudaGetLastError());  
     }
 
     double elapsed_gpu = cpuSecond() - start;
@@ -602,15 +603,15 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     //  dato che non voglio allocare più memoria del necessario)
     complex *d_input;
     complex *d_output;
-    cudaMalloc(&d_input, image_size*sizeof(complex));
-    cudaMalloc(&d_output, image_size*sizeof(complex));
+    CHECK(cudaMalloc(&d_input, image_size*sizeof(complex)));  
+    CHECK(cudaMalloc(&d_output, image_size*sizeof(complex))); 
 
     // Faccio un unico grande trasferimento
-    cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
+    CHECK(cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice));  
 
     cudaStream_t *streams = (cudaStream_t *)malloc(num_streams * sizeof(cudaStream_t));
     for (int i = 0 ; i < num_streams; i++) {
-        cudaStreamCreate(&streams[i]);
+        CHECK(cudaStreamCreate(&streams[i]));  
     }
 
     double start = cpuSecond();
@@ -620,7 +621,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     }
     // sincronizzo prima di fare la trasposta
     for (int i=0; i<num_streams; i++) {
-        cudaStreamSynchronize(streams[i]);
+        CHECK(cudaStreamSynchronize(streams[i]));  
     }
 
     // Per fare la FFT delle colonne prima faccio la trasposta della matrice
@@ -629,6 +630,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     dim3 block(block_dimx, block_dimy);
     dim3 grid((row_size + block.x - 1) / block.x, (column_size + block.y - 1) / block.y);
     trasponi_matrice_kernel<<<grid, block>>>(d_output, d_input, row_size, column_size);
+    CHECK(cudaGetLastError());  
     
     // FFT delle colonne
     for(int j = 0; j<image_size; j+=column_size) {     
@@ -636,18 +638,18 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     }
     // sincronizzo prima di recuperare il risultato finale
     for (int i=0; i<num_streams; i++) {
-        cudaStreamSynchronize(streams[i]);
+        CHECK(cudaStreamSynchronize(streams[i]));  
     }
 
     // Faccio un unico grande trasferimento
-    cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
+    CHECK(cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost));  
     double elapsed_gpu = cpuSecond() - start;
 
     // cleanup
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CHECK(cudaFree(d_input));  
+    CHECK(cudaFree(d_output)); 
     for (int i=0; i<num_streams; i++) {
-        cudaStreamDestroy(streams[i]) ;
+        CHECK(cudaStreamDestroy(streams[i]));  
     }
 
     return elapsed_gpu;

@@ -296,8 +296,8 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
-
-    double phi = (-2.0*PI/N_stadio_corrente) * j;
+    
+    double phi = __dmul_rn(__ddiv_rn(-2.0*PI, (double)N_stadio_corrente), (double)j);
     complex twiddle_factor = {
         cos(phi),
         sin(phi)
