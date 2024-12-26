@@ -120,22 +120,12 @@ int fft_iterativa(complex *input, complex *output, int N) {
     // num_stadi = "quante volte posso dividere N per due"
     int num_stadi = (int) log2f((float) N);
 
-    // stadio 0: DFT di un campione
-    // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
-    // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
-    // che avviene in modo esplicito nella versione ricorsiva.
+
     double start = cpuSecond();
     for (uint32_t i = 0; i < N; i++) {
         uint32_t rev = reverse_bits(i);
-        // Non faccio un bit reversal completo ma uno parziale che 
-        // tiene conto solo di bit necessari a rappresentare gli N indici
-        // del segnale in ingresso. Per cui, qua mantengo solo log_2(N) bit 
         rev = rev >> (32 - num_stadi);
 
-        /*
-            Per comodità ho aggiunto questo controllo che mi permette di fare delle
-            trasformazioni inplace se input == output
-        */
         if(input == output) {
             if (i < rev) {  
                 complex temp = input[i];
@@ -147,11 +137,9 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
-    printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
-        // Variabili di appoggio in cui mi salvo il numero di campioni da considerare nello stadio corrente
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
@@ -159,13 +147,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
         // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
-            /*
-                Abbiamo:
-                    - output[k...N/2-1] sono le componenti della trasformata pari, mentre
-                      output[N/2...N-1] sono le componenti della trasformata dispari.
-                        - Guarda diagramma a farfalla. 
-                    - j = offset all'interno del blocco di farfalle considerato
-            */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
@@ -173,9 +154,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     sin(phi)
                 };
 
-                if( (k+j) == 1) {
-                    printf("\t\tCPU - farfalla 0 ha come twiddle: (%f, %f)\n", twiddle_factor.real, twiddle_factor.imag);
-                }
+                printf("\tCPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n", k+j, stadio, twiddle_factor.real, twiddle_factor.imag);
 
                 complex a = output[k + j];
                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
@@ -298,23 +277,22 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         return;
     }
 
-    extern __shared__ complex twiddle_factor_array[]; // grande N/2 (le altre N/2 rotazioni sono simmetriche)
+    extern __shared__ complex local_twiddle_factor_array[]; // grande N/2 (le altre N/2 rotazioni sono simmetriche)
 
-    // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
-    // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
-    // % forse è meglio evitare il modulo
-    // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
     // carico la smem con il twiddle che questo thread dovrà usare
     int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
-    twiddle_factor_array[twiddle_index] = d_twiddle_factor_array[twiddle_index];
+    local_twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[twiddle_index];
     __syncthreads();
 
-    if(j == 0) {
-        printf("\t\tGPU - farfalla 0 ha come twiddle: (%f, %f)\n", twiddle_factor_array[twiddle_index].real, twiddle_factor_array[twiddle_index].imag);
-    }
+    printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
+           thread_id, stadio_corrente, d_twiddle_factor_array[twiddle_index].real, d_twiddle_factor_array[twiddle_index].imag);
+
+    // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
+    //        thread_id, stadio_corrente, local_twiddle_factor_array[threadIdx.x].real, local_twiddle_factor_array[threadIdx.x].imag);
+    
     /*
         float phi = (-2.0f*PI/N_stadio_corrente) * j;
 
@@ -323,7 +301,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     */
 
     complex a = output[k + j];
-    complex b = prodotto_tra_complessi(twiddle_factor_array[twiddle_index], output[k + j + N_stadio_corrente_mezzi]);
+    complex b = prodotto_tra_complessi(local_twiddle_factor_array[threadIdx.x], output[k + j + N_stadio_corrente_mezzi]);
 
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
@@ -336,7 +314,7 @@ void precalcola_twiddle_factors(int N, complex* twiddle_factor_array) {
     // l'incremento minimo è quello dell'ultimo stadio
     float phi_increment = -2.0f*PI/N; 
 
-    for(int i=0; i<N / 2; i++) {
+    for(int i=0; i < N/2; i++) {
         twiddle_factor_array[i].real = (float)cos(phi_increment * i);
         twiddle_factor_array[i].imag = (float)sin(phi_increment * i);
     }
@@ -366,16 +344,14 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     double start = cpuSecond();
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // precalcolo dei twiddle factor
-    int smem_size = (N/2) * sizeof(complex);
-    complex* twiddle_factor_array = (complex*)malloc(smem_size);
+    int twiddle_factor_array_size = (N/2)*sizeof(complex);
+    complex* twiddle_factor_array = (complex*)malloc(twiddle_factor_array_size);
     precalcola_twiddle_factors(N, twiddle_factor_array);
-    
     complex* d_twiddle_factor_array;
-    cudaMalloc(&d_twiddle_factor_array, smem_size);
-    cudaMemcpy(d_twiddle_factor_array, twiddle_factor_array, smem_size, cudaMemcpyHostToDevice);
+    cudaMalloc(&d_twiddle_factor_array, twiddle_factor_array_size);
+    cudaMemcpy(d_twiddle_factor_array, twiddle_factor_array, twiddle_factor_array_size, cudaMemcpyHostToDevice);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
@@ -387,8 +363,17 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
+        int smem_total_size = N_stadio_corrente_mezzi*sizeof(complex);
+        int smem_per_block_size = smem_total_size/num_blocks;
+        
+        printf("\tsmem_total_size: %d bytes, smem_per_block_size: %d bytes\n", smem_total_size, smem_per_block_size);
 
-        fft_stage<<<num_blocks, threads_per_block, smem_size>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi, num_stadi, stadio, d_twiddle_factor_array);
+        fft_stage<<<num_blocks, threads_per_block, smem_per_block_size>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi, num_stadi, stadio, d_twiddle_factor_array);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            printf("Errore nel kernel fft_bit_reversal: %s\n", cudaGetErrorString(err));
+        }
+        cudaDeviceSynchronize();
     }
 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
