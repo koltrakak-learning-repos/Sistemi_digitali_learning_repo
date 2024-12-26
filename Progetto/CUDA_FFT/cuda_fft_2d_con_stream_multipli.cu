@@ -719,10 +719,10 @@ int main(int argc, char **argv) {
     int dev = 0;
     cudaDeviceProp deviceProp;
     CHECK(cudaGetDeviceProperties(&deviceProp, dev));
-    printf("Using Device %d: %s\n", dev, deviceProp.name);
+    printf("\nUsing Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
-    printf("\nCUDA System Information:\n");
+    printf("CUDA System Information:\n");
     printf("CUDA Driver Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
     printf("CUDA Runtime Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
     printf("\t1. Compute Capability: %d.%d\n", deviceProp.major, deviceProp.minor);
