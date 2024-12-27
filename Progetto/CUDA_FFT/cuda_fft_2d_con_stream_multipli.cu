@@ -616,7 +616,9 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     double start = cpuSecond();
     // FFT delle righe
     for(int i = 0; i < image_size; i+=row_size) {
-        fft_iterativa_cuda(&d_input[i], &d_output[i], row_size, threads_per_block, streams[i%num_streams]);
+        int indice_riga = i/row_size;
+        // printf("\t\t[riga %d] utilizza lo stream %d\n", indice_riga, indice_riga%num_streams);
+        fft_iterativa_cuda(&d_input[i], &d_output[i], row_size, threads_per_block, streams[indice_riga%num_streams]);
     }
     // sincronizzo prima di fare la trasposta
     for (int i=0; i<num_streams; i++) {
@@ -631,8 +633,10 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     trasponi_matrice_kernel<<<grid, block>>>(d_output, d_input, row_size, column_size);
     
     // FFT delle colonne
-    for(int j = 0; j<image_size; j+=column_size) {     
-        fft_iterativa_cuda(&d_input[j], &d_output[j], column_size, threads_per_block, streams[j%num_streams]);
+    for(int j = 0; j<image_size; j+=column_size) {    
+        int indice_colonna = j/column_size;
+        // printf("\t\t[colonna %d] utilizza lo stream %d\n", indice_colonna, indice_colonna%num_streams); 
+        fft_iterativa_cuda(&d_input[j], &d_output[j], column_size, threads_per_block, streams[indice_colonna%num_streams]);
     }
     // sincronizzo prima di recuperare il risultato finale
     for (int i=0; i<num_streams; i++) {

@@ -363,7 +363,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
-        int smem_total_size = N_stadio_corrente_mezzi*sizeof(complex);
+        int smem_total_size = N_stadio_corrente_mezzi*sizeof(complex);  // prova con 'N_stadio_corrente' e basta, così a cazzo
         int smem_per_block_size = smem_total_size/num_blocks;
         
         printf("\tsmem_total_size: %d bytes, smem_per_block_size: %d bytes\n", smem_total_size, smem_per_block_size);
