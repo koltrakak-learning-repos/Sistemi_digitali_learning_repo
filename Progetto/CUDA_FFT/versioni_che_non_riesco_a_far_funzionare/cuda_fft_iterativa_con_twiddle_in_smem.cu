@@ -154,7 +154,7 @@ int fft_iterativa(complex *input, complex *output, int N) {
                     sin(phi)
                 };
 
-                printf("\tCPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n", k+j, stadio, twiddle_factor.real, twiddle_factor.imag);
+                // printf("\tCPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n", k+j, stadio, twiddle_factor.real, twiddle_factor.imag);
 
                 complex a = output[k + j];
                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
@@ -283,12 +283,13 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     int j = thread_id % N_stadio_corrente_mezzi;
 
     // carico la smem con il twiddle che questo thread dovrà usare
+    // lo stride si dimezza ad ogni stadio, (l'ultimo stadio considera l'intero array)
     int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
     local_twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[twiddle_index];
     __syncthreads();
 
-    printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
-           thread_id, stadio_corrente, d_twiddle_factor_array[twiddle_index].real, d_twiddle_factor_array[twiddle_index].imag);
+    // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
+    //        thread_id, stadio_corrente, d_twiddle_factor_array[twiddle_index].real, d_twiddle_factor_array[twiddle_index].imag);
 
     // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
     //        thread_id, stadio_corrente, local_twiddle_factor_array[threadIdx.x].real, local_twiddle_factor_array[threadIdx.x].imag);
@@ -348,7 +349,10 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // precalcolo dei twiddle factor
     int twiddle_factor_array_size = (N/2)*sizeof(complex);
     complex* twiddle_factor_array = (complex*)malloc(twiddle_factor_array_size);
+    double start2 = cpuSecond();
     precalcola_twiddle_factors(N, twiddle_factor_array);
+    double elapsed_twiddle = cpuSecond() - start2;
+    printf("Calcolo dei twiddle: %f ms\n\n", elapsed_twiddle*1000);
     complex* d_twiddle_factor_array;
     cudaMalloc(&d_twiddle_factor_array, twiddle_factor_array_size);
     cudaMemcpy(d_twiddle_factor_array, twiddle_factor_array, twiddle_factor_array_size, cudaMemcpyHostToDevice);
@@ -358,15 +362,15 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
     num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
     
+    // configurazione smem
+    int smem_total_size = (N/2)*sizeof(complex);
+    int smem_per_block_size = smem_total_size/num_blocks;
+    printf("\tsmem_total_size: %d bytes, smem_per_block_size: %d bytes\n", smem_total_size, smem_per_block_size);
 
     // Lancia i kernel per ogni stadio
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
-        int smem_total_size = N_stadio_corrente_mezzi*sizeof(complex);  // prova con 'N_stadio_corrente' e basta, così a cazzo
-        int smem_per_block_size = smem_total_size/num_blocks;
-        
-        printf("\tsmem_total_size: %d bytes, smem_per_block_size: %d bytes\n", smem_total_size, smem_per_block_size);
 
         fft_stage<<<num_blocks, threads_per_block, smem_per_block_size>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi, num_stadi, stadio, d_twiddle_factor_array);
         cudaError_t err = cudaGetLastError();
