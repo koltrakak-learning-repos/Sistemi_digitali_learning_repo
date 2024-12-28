@@ -470,10 +470,11 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 }
 
 
+
 /*
     funzioni per fft lato gpu
 */
-__global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
+__global__ void fft_bit_reversal(complex *input, complex *output, int N, int righe, int num_stadi) {
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
     // controllo se ci sono dei thread in eccesso
@@ -481,13 +482,14 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
         return;
     }
 
-    // Copia input nell'output con bit-reversal (stadio 0)
+    // ogni thread fa il 'thread-id-esimo' elemento di una riga per 'righe' righe
     uint32_t rev = reverse_bits(thread_id) >> (32 - num_stadi);
-
-    output[thread_id] = input[rev];    
+    for(int i=0; i<righe; i++) {
+        output[thread_id + i*N] = input[rev + i*N];
+    }    
 }
 
-__global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
+__global__ void fft_stage(complex *output, int N, int righe, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
     // controllo se ci sono dei thread in eccesso
@@ -496,29 +498,30 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
         return;
     }
 
-    // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
-    int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
-    // Offset all'interno del blocco di farfalle considerato
-    int j = thread_id % N_stadio_corrente_mezzi;
+    // ogni thread fa il 'thread-id-esimo' elemento di una riga per 'righe' righe
+    for(int i=0; i<righe; i++) {
+        // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
+        int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
+        // Offset all'interno del blocco di farfalle considerato
+        int j = thread_id % N_stadio_corrente_mezzi;
+        // Aggiungo l'offseti di riga
+        int kj_riga = k + j +i*N;
 
-    /*
-        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
-        potrebbe essere precalcolare il vettore dei twiddle factor  
-    */
-    float phi = __fdividef(-2.0f*PI, N_stadio_corrente) * j;
-    complex twiddle_factor = {
-        __cosf(phi),
-        __sinf(phi)
-    };
+        float phi = (-2.0f*PI/N_stadio_corrente) * j;
+        complex twiddle_factor = {
+            __cosf(phi),
+            __sinf(phi)
+        };
 
-    complex a = output[k + j];
-    complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+        complex a = output[kj_riga];
+        complex b = prodotto_tra_complessi(twiddle_factor, output[kj_riga + N_stadio_corrente_mezzi]);
 
-    output[k + j].real = a.real + b.real;
-    output[k + j].imag = a.imag + b.imag;
-    // simmetria
-    output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
-    output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+        output[kj_riga].real = a.real + b.real;
+        output[kj_riga].imag = a.imag + b.imag;
+        // simmetria
+        output[kj_riga + N_stadio_corrente_mezzi].real = a.real - b.real;
+        output[kj_riga + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+    }
 }
 
 __global__ void trasponi_matrice_kernel(complex *input, complex *output, const int W, const int H) {
@@ -534,22 +537,19 @@ __global__ void trasponi_matrice_kernel(complex *input, complex *output, const i
 /*
     NB: questa funzione accetta solo riferimenti al device 
 */
-double fft_iterativa_cuda(complex *d_input, complex *d_output, int N, int threads_per_block, cudaStream_t stream) {
+void fft_iterativa_cuda_righe_multiple(complex *d_input, complex *d_output, int N, int righe, int threads_per_block, cudaStream_t stream) {
     if (N & (N - 1)) {
         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
-        return 0;
+        return;
     }
 
     int num_stadi = (int)log2f((double)N);
     
-    double start = cpuSecond();
-
     // Configurazione dei blocchi e dei thread per il bit reversal
     int num_threads = N;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
     // stadio 0
-    fft_bit_reversal<<<num_blocks, threads_per_block, 0, stream>>>(d_input, d_output, N, num_stadi);
-    CHECK(cudaGetLastError());  
+    fft_bit_reversal<<<num_blocks, threads_per_block, 0, stream>>>(d_input, d_output, N, righe, num_stadi);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
@@ -559,17 +559,12 @@ double fft_iterativa_cuda(complex *d_input, complex *d_output, int N, int thread
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
-        fft_stage<<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
-        CHECK(cudaGetLastError());  
+        fft_stage<<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, righe, N_stadio_corrente, N_stadio_corrente_mezzi);
     }
-
-    double elapsed_gpu = cpuSecond() - start;
-
-    return elapsed_gpu;
 }
 
 double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size,
-                   int threads_per_block, int num_streams) {
+                   int threads_per_block, int RIGHE_PROCESSATE_ALLA_VOLTA) {
     // Le dimensioni dei dati devono essere potenze di due
     if (image_size != row_size*column_size) {
         fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
@@ -592,27 +587,35 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     //  dato che non voglio allocare più memoria del necessario)
     complex *d_input;
     complex *d_output;
-    CHECK(cudaMalloc(&d_input, image_size*sizeof(complex)));  
-    CHECK(cudaMalloc(&d_output, image_size*sizeof(complex))); 
+    cudaMalloc(&d_input, image_size*sizeof(complex));
+    cudaMalloc(&d_output, image_size*sizeof(complex));
 
     // Faccio un unico grande trasferimento
-    CHECK(cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice));  
+    cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
+
+    // calcolo il numero di stream necessario, ho bisogno di uno stream per 
+    int bigger_size = row_size > column_size ? row_size : column_size;     
+    int max_num_row_blocks = bigger_size / RIGHE_PROCESSATE_ALLA_VOLTA;
+    int num_streams = max_num_row_blocks;
+    printf("Utilizzo %d streams per elaborare:\n", num_streams);
+    printf("\t%d righe da %d elementi (%d righe alla volta)\n", image_size/row_size, row_size, RIGHE_PROCESSATE_ALLA_VOLTA);
+    printf("\t%d colonne da %d elementi (%d colonne alla volta)\n", image_size/column_size, column_size, RIGHE_PROCESSATE_ALLA_VOLTA );
 
     cudaStream_t *streams = (cudaStream_t *)malloc(num_streams * sizeof(cudaStream_t));
     for (int i = 0 ; i < num_streams; i++) {
-        CHECK(cudaStreamCreate(&streams[i]));  
+        cudaStreamCreate(&streams[i]);
     }
 
     double start = cpuSecond();
-    // FFT delle righe
-    for(int i = 0; i < image_size; i+=row_size) {
-        int indice_riga = i/row_size;
-        // printf("\t\t[riga %d] utilizza lo stream %d\n", indice_riga, indice_riga%num_streams);
-        fft_iterativa_cuda(&d_input[i], &d_output[i], row_size, threads_per_block, streams[indice_riga%num_streams]);
+    // FFT delle righe, (RIGHE_PROCESSATE_ALLA_VOLTA righe assegnate ad una singola FFT)
+    for(int i = 0; i < image_size; i += row_size*RIGHE_PROCESSATE_ALLA_VOLTA) {
+        int indice_blocco_righe = i/(row_size*RIGHE_PROCESSATE_ALLA_VOLTA);
+        // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);
+        fft_iterativa_cuda_righe_multiple(&d_input[i], &d_output[i], row_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_righe%num_streams]);
     }
     // sincronizzo prima di fare la trasposta
     for (int i=0; i<num_streams; i++) {
-        CHECK(cudaStreamSynchronize(streams[i]));  
+        cudaStreamSynchronize(streams[i]);
     }
 
     // Per fare la FFT delle colonne prima faccio la trasposta della matrice
@@ -621,28 +624,27 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     dim3 block(block_dimx, block_dimy);
     dim3 grid((row_size + block.x - 1) / block.x, (column_size + block.y - 1) / block.y);
     trasponi_matrice_kernel<<<grid, block>>>(d_output, d_input, row_size, column_size);
-    CHECK(cudaGetLastError());  
     
     // FFT delle colonne
-    for(int j = 0; j<image_size; j+=column_size) {    
-        int indice_colonna = j/column_size;
-        // printf("\t\t[colonna %d] utilizza lo stream %d\n", indice_colonna, indice_colonna%num_streams); 
-        fft_iterativa_cuda(&d_input[j], &d_output[j], column_size, threads_per_block, streams[indice_colonna%num_streams]);
+    for(int j = 0; j<image_size; j+=column_size*RIGHE_PROCESSATE_ALLA_VOLTA) {    
+        int indice_blocco_colonne = j/(column_size*RIGHE_PROCESSATE_ALLA_VOLTA);
+        // printf("\t\t[blocco colonne %d] utilizza lo stream %d\n", j/column_size, indice_blocco_colonne%num_streams); 
+        fft_iterativa_cuda_righe_multiple(&d_input[j], &d_output[j], column_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_colonne%num_streams]);
     }
     // sincronizzo prima di recuperare il risultato finale
     for (int i=0; i<num_streams; i++) {
-        CHECK(cudaStreamSynchronize(streams[i]));  
+        cudaStreamSynchronize(streams[i]);
     }
 
     // Faccio un unico grande trasferimento
-    CHECK(cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost));  
+    cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
 
     // cleanup
-    CHECK(cudaFree(d_input));  
-    CHECK(cudaFree(d_output)); 
+    cudaFree(d_input);
+    cudaFree(d_output);
     for (int i=0; i<num_streams; i++) {
-        CHECK(cudaStreamDestroy(streams[i]));  
+        cudaStreamDestroy(streams[i]) ;
     }
 
     return elapsed_gpu;
@@ -658,14 +660,14 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
 
 int main(int argc, char **argv) {
     if (argc < 5) {
-        printf("Usage: %s <file_name> <fattore_di_compressione> <threads_per_fft_block> <num_streams>\n", argv[0]);
+        printf("Usage: %s <file_name> <fattore_di_compressione> <threads_per_fft_block> <righe_processate_alla_volta>\n", argv[0]);
         return 1;
     }
 
-    const char* FILE_NAME               = argv[1];
-    const int FATTORE_DI_COMPRESSIONE   = atoi(argv[2]);
-    const int threads_per_fft_block     = atoi(argv[3]);
-    const int num_streams               = atoi(argv[4]);
+    const char* FILE_NAME                   = argv[1];
+    const int FATTORE_DI_COMPRESSIONE       = atoi(argv[2]);
+    const int threads_per_fft_block         = atoi(argv[3]);
+    const int righe_processate_alla_volta   = atoi(argv[4]);
 
     // Load the image
     int width, height, channels;
@@ -735,7 +737,7 @@ int main(int argc, char **argv) {
     complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
     
     double elapsed_device = fft_2D_cuda(complex_input_image_data, gpu_ref_output_fft_2D_data, image_size, width*channels, height,
-                                        threads_per_fft_block, num_streams);
+                                        threads_per_fft_block, righe_processate_alla_volta);
     
     checkResult(output_fft_2D_data, gpu_ref_output_fft_2D_data, image_size);
     printf("Host: %f ms\n", elapsed_host*1000);
