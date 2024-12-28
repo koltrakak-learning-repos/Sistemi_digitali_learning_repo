@@ -108,6 +108,15 @@ void convert_to_short(complex *input, short *output, int N) {
 }
 
 
+void precalcola_twiddle_factors(int N, complex* twiddle_factor_array) {
+    // l'incremento minimo è quello dell'ultimo stadio
+    float phi_increment = -2.0f*PI/N; 
+
+    for(int i=0; i < N/2; i++) {
+        twiddle_factor_array[i].real = (float)cos(phi_increment * i);
+        twiddle_factor_array[i].imag = (float)sin(phi_increment * i);
+    }
+}
 
 int fft_iterativa(complex *input, complex *output, int N) {
     // N & (N - 1) = ...01000... & ...00111... = 0
@@ -239,31 +248,35 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
 
 
+__global__ void precalcola_twiddle_factors_kernel(float phi_increment, complex* twiddle_factor_array) {
+    int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
+    twiddle_factor_array[thread_id].real = __cosf(phi_increment * thread_id);
+    twiddle_factor_array[thread_id].imag = __sinf(phi_increment * thread_id);
+}
 
 __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
+    /*
+        NB: qua mi è difficile utilizzare la smem per risolvere il 
+        problema dell'accesso non coalescente alla memoria di input.
+
+        Infatti, potrei fare caricare a tutti i thread un campione nella smem,
+        tuttavia, gia all'indice 1 avrei di bisogno di accedere alla smem di 
+        un altro blocco quando N è sufficientemente grande.
+
+        La stessa cosa succede sotto in fft_stage
+    */
+
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N) {
-        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
     // Copia input nell'output con bit-reversal (stadio 0)
-    uint32_t rev = reverse_bits(thread_id);
-    rev = rev >> (32 - num_stadi);
-
-    if(input == output) {
-        if (thread_id < rev) {  
-            complex temp = input[thread_id];
-            output[thread_id] = input[rev];
-            output[rev] = temp;
-        }
-    }
-    else {
-        output[thread_id] = input[rev];
-    }
+    uint32_t rev = reverse_bits(thread_id) >> (32 - num_stadi);
+    output[thread_id] = input[rev]; // lettura non coalescente!!!
 }
 
 // Kernel che calcola una farfalla e la sua simmetrica 
@@ -285,7 +298,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // carico la smem con il twiddle che questo thread dovrà usare
     // lo stride si dimezza ad ogni stadio, (l'ultimo stadio considera l'intero array)
     int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
-    local_twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[twiddle_index];
+    local_twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[twiddle_index];    // accesso non coalescente!!!
     __syncthreads();
 
     // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
@@ -311,15 +324,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
 }
 
-void precalcola_twiddle_factors(int N, complex* twiddle_factor_array) {
-    // l'incremento minimo è quello dell'ultimo stadio
-    float phi_increment = -2.0f*PI/N; 
 
-    for(int i=0; i < N/2; i++) {
-        twiddle_factor_array[i].real = (float)cos(phi_increment * i);
-        twiddle_factor_array[i].imag = (float)sin(phi_increment * i);
-    }
-}
 
 double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // Controllo che N sia una potenza di 2
@@ -348,14 +353,21 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
 
     // precalcolo dei twiddle factor
     int twiddle_factor_array_size = (N/2)*sizeof(complex);
-    complex* twiddle_factor_array = (complex*)malloc(twiddle_factor_array_size);
-    double start2 = cpuSecond();
-    precalcola_twiddle_factors(N, twiddle_factor_array);
-    double elapsed_twiddle = cpuSecond() - start2;
-    printf("Calcolo dei twiddle: %f ms\n\n", elapsed_twiddle*1000);
     complex* d_twiddle_factor_array;
     cudaMalloc(&d_twiddle_factor_array, twiddle_factor_array_size);
-    cudaMemcpy(d_twiddle_factor_array, twiddle_factor_array, twiddle_factor_array_size, cudaMemcpyHostToDevice);
+
+    float phi_increment = -2.0f*PI/N;
+
+    threads_per_block = 256;
+    num_threads = N/2;
+    num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
+
+    double start2 = cpuSecond();
+    precalcola_twiddle_factors_kernel<<<num_blocks, threads_per_block>>>(phi_increment, d_twiddle_factor_array);
+    double elapsed_twiddle = cpuSecond() - start2;
+    printf("Calcolo dei twiddle: %f ms\n\n", elapsed_twiddle*1000);
+
+    
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
@@ -387,7 +399,6 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaFree(d_input);
     cudaFree(d_output);
     cudaFree(d_twiddle_factor_array);
-    free(twiddle_factor_array);
 
     return elapsed_gpu;
 }
