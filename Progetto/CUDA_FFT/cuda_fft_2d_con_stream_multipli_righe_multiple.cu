@@ -564,7 +564,7 @@ void fft_iterativa_cuda_righe_multiple(complex *d_input, complex *d_output, int 
 }
 
 double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size,
-                   int threads_per_block, int num_streams) {
+                   int threads_per_block, int RIGHE_PROCESSATE_ALLA_VOLTA) {
     // Le dimensioni dei dati devono essere potenze di due
     if (image_size != row_size*column_size) {
         fprintf(stderr, "image_size=%u deve essere una potenza di due uguale al prodotto tra row_size e column_size\n", image_size);
@@ -582,8 +582,6 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         return -1;
     }
 
-    const int RIGHE_PROCESSATE_ALLA_VOLTA = 32;
-
     // Alloca memoria sulla GPU 
     // (occhio che sotto faccio degli scambi poco leggibili 
     //  dato che non voglio allocare più memoria del necessario)
@@ -594,6 +592,14 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
 
     // Faccio un unico grande trasferimento
     cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
+
+    // calcolo il numero di stream necessario, ho bisogno di uno stream per 
+    int bigger_size = row_size > column_size ? row_size : column_size;     
+    int max_num_row_blocks = bigger_size / RIGHE_PROCESSATE_ALLA_VOLTA;
+    int num_streams = max_num_row_blocks;
+    printf("Utilizzo %d streams per elaborare:\n", num_streams);
+    printf("\t%d righe da %d elementi (%d righe alla volta)\n", image_size/row_size, row_size, RIGHE_PROCESSATE_ALLA_VOLTA);
+    printf("\t%d colonne da %d elementi (%d colonne alla volta)\n", image_size/column_size, column_size, RIGHE_PROCESSATE_ALLA_VOLTA );
 
     cudaStream_t *streams = (cudaStream_t *)malloc(num_streams * sizeof(cudaStream_t));
     for (int i = 0 ; i < num_streams; i++) {
@@ -654,14 +660,14 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
 
 int main(int argc, char **argv) {
     if (argc < 5) {
-        printf("Usage: %s <file_name> <fattore_di_compressione> <threads_per_fft_block> <num_streams>\n", argv[0]);
+        printf("Usage: %s <file_name> <fattore_di_compressione> <threads_per_fft_block> <righe_processate_alla_volta>\n", argv[0]);
         return 1;
     }
 
-    const char* FILE_NAME               = argv[1];
-    const int FATTORE_DI_COMPRESSIONE   = atoi(argv[2]);
-    const int threads_per_fft_block     = atoi(argv[3]);
-    const int num_streams               = atoi(argv[4]);
+    const char* FILE_NAME                   = argv[1];
+    const int FATTORE_DI_COMPRESSIONE       = atoi(argv[2]);
+    const int threads_per_fft_block         = atoi(argv[3]);
+    const int righe_processate_alla_volta   = atoi(argv[4]);
 
     // Load the image
     int width, height, channels;
@@ -731,7 +737,7 @@ int main(int argc, char **argv) {
     complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
     
     double elapsed_device = fft_2D_cuda(complex_input_image_data, gpu_ref_output_fft_2D_data, image_size, width*channels, height,
-                                        threads_per_fft_block, num_streams);
+                                        threads_per_fft_block, righe_processate_alla_volta);
     
     checkResult(output_fft_2D_data, gpu_ref_output_fft_2D_data, image_size);
     printf("Host: %f ms\n", elapsed_host*1000);
