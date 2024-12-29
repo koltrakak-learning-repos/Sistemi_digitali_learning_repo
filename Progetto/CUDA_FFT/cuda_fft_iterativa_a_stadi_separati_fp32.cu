@@ -297,7 +297,7 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
-    // % forse è meglio evitare il modulo
+    // % evitare il modulo non cambia le performance
     // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
     /*

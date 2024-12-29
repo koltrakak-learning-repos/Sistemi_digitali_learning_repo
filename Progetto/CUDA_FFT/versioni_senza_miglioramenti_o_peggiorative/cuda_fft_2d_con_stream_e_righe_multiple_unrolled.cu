@@ -474,6 +474,7 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 /*
     funzioni per fft lato gpu
 */
+template<int UNROLL_FACTOR>
 __global__ void fft_bit_reversal(complex *input, complex *output, int N, int righe, int num_stadi) {
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -484,11 +485,17 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int rig
 
     // ogni thread fa il 'thread-id-esimo' elemento di una riga per 'righe' righe
     uint32_t rev = reverse_bits(thread_id) >> (32 - num_stadi);
-    for(int i=0; i<righe; i++) {
-        output[thread_id + i*N] = input[rev + i*N];
+    
+    
+    for(int i=0; i<righe; i+=UNROLL_FACTOR) {
+        #pragma unroll
+        for(int u=0; u<UNROLL_FACTOR; u++) {
+            output[thread_id + (i+u)*N] = input[rev + (i+u)*N];
+        }
     }    
 }
 
+template<int UNROLL_FACTOR>
 __global__ void fft_stage(complex *output, int N, int righe, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -499,28 +506,31 @@ __global__ void fft_stage(complex *output, int N, int righe, int N_stadio_corren
     }
 
     // ogni thread fa il 'thread-id-esimo' elemento di una riga per 'righe' righe
-    for(int i=0; i<righe; i++) {
-        // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
-        int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
-        // Offset all'interno del blocco di farfalle considerato
-        int j = thread_id % N_stadio_corrente_mezzi;
-        // Aggiungo l'offseti di riga
-        int kj_riga = k + j +i*N;
+    for(int i=0; i<righe; i+=UNROLL_FACTOR) {
+        #pragma unroll
+        for(int u=0; u<UNROLL_FACTOR; u++) {
+            // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
+            int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
+            // Offset all'interno del blocco di farfalle considerato
+            int j = thread_id % N_stadio_corrente_mezzi;
+            // Aggiungo l'offseti di riga
+            int kj_riga = k + j + (i+u)*N;
 
-        float phi = (-2.0f*PI/N_stadio_corrente) * j;
-        complex twiddle_factor = {
-            __cosf(phi),
-            __sinf(phi)
-        };
+            float phi = (-2.0f*PI/N_stadio_corrente) * j;
+            complex twiddle_factor = {
+                __cosf(phi),
+                __sinf(phi)
+            };
 
-        complex a = output[kj_riga];
-        complex b = prodotto_tra_complessi(twiddle_factor, output[kj_riga + N_stadio_corrente_mezzi]);
+            complex a = output[kj_riga];
+            complex b = prodotto_tra_complessi(twiddle_factor, output[kj_riga + N_stadio_corrente_mezzi]);
 
-        output[kj_riga].real = a.real + b.real;
-        output[kj_riga].imag = a.imag + b.imag;
-        // simmetria
-        output[kj_riga + N_stadio_corrente_mezzi].real = a.real - b.real;
-        output[kj_riga + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+            output[kj_riga].real = a.real + b.real;
+            output[kj_riga].imag = a.imag + b.imag;
+            // simmetria
+            output[kj_riga + N_stadio_corrente_mezzi].real = a.real - b.real;
+            output[kj_riga + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+        }
     }
 }
 
@@ -543,13 +553,15 @@ void fft_iterativa_cuda_righe_multiple(complex *d_input, complex *d_output, int 
         return;
     }
 
+    const int UNROLL_FACTOR = 32;
+
     int num_stadi = (int)log2f((double)N);
     
     // Configurazione dei blocchi e dei thread per il bit reversal
     int num_threads = N;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
     // stadio 0
-    fft_bit_reversal<<<num_blocks, threads_per_block, 0, stream>>>(d_input, d_output, N, righe, num_stadi);
+    fft_bit_reversal<UNROLL_FACTOR><<<num_blocks, threads_per_block, 0, stream>>>(d_input, d_output, N, righe, num_stadi);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
@@ -559,7 +571,7 @@ void fft_iterativa_cuda_righe_multiple(complex *d_input, complex *d_output, int 
         int N_stadio_corrente = 1 << stadio;
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
-        fft_stage<<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, righe, N_stadio_corrente, N_stadio_corrente_mezzi);
+        fft_stage<UNROLL_FACTOR><<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, righe, N_stadio_corrente, N_stadio_corrente_mezzi);
     }
 }
 
