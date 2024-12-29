@@ -17,7 +17,7 @@ Per voi non è quindi strettamente necessario andare a vedere cosa c'è dentro, 
 
 Le versioni_sbagliate invece, in quanto non funzionanti, non le porterò all'esame e quindi potete ignorarle.
 
-### Resto della repo
+## Resto della repo
 - Le cartelle *Modulo1/* e *Modulo2/* contengono appunti.
 - La cartella *Progetto/* contiene materiale vario per il mio progetto riguardante l'implementazione di un **algoritmo di compressione basato su una implementazione parallela con CUDA di una FFT-2D**.
   - *Progetto/Ripasso_Fourier/* contiene vari appunti riguardanti la teoria alla base della trasformata di Fourier e della FFT.
