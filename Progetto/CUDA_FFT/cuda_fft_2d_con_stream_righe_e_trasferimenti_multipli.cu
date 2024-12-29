@@ -528,19 +528,10 @@ __global__ void trasponi_matrice_kernel(complex *input, complex *output, const i
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
 
-    int tid = threadIdx.y*blockDim.x + threadIdx.x; 
-
-    extern __shared__ complex smem[]; // grande quanto il blocco
-    smem[tid] = input[iy*W+ ix];
-    __syncthreads(); 
-
-
     if (ix < W && iy < H) {
-        output[iy*W + ix] = smem[ix*H + iy]; // Lettura con stride, scrittura coalescente
+        output[iy*W + ix] = input[ix*H + iy]; // Lettura con stride, scrittura coalescente
     }
 }
-
-
 /*
     NB: questa funzione accetta solo riferimenti a memoria pinned sull'host siccome fa trasferimenti asincroni 
 */
@@ -624,7 +615,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     // FFT delle righe, (RIGHE_PROCESSATE_ALLA_VOLTA righe assegnate ad una singola FFT)
     for(int i = 0; i < image_size; i += row_size*RIGHE_PROCESSATE_ALLA_VOLTA) {
         int indice_blocco_righe = i/(row_size*RIGHE_PROCESSATE_ALLA_VOLTA);
-        // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);
+        // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);  
         fft_iterativa_cuda_righe_multiple(&input_image_data[i], &output_fft_2D_data[i], &d_input[i], &d_output[i],
                                           row_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_righe%num_streams]);
     }
