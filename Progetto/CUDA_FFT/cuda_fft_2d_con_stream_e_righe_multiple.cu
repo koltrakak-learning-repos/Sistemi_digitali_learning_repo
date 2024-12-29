@@ -528,15 +528,8 @@ __global__ void trasponi_matrice_kernel(complex *input, complex *output, const i
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
 
-    int tid = threadIdx.y*blockDim.x + threadIdx.x; 
-
-    extern __shared__ complex smem[]; // grande quanto il blocco
-    smem[tid] = input[iy*W+ ix];
-    __syncthreads(); 
-
-
     if (ix < W && iy < H) {
-        output[iy*W + ix] = smem[ix*H + iy]; // Lettura con stride, scrittura coalescente
+        output[iy*W + ix] = input[ix*H + iy]; // Lettura con stride, scrittura coalescente
     }
 }
 
