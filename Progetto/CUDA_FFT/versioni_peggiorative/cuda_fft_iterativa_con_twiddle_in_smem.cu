@@ -264,7 +264,7 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
         tuttavia, gia all'indice 1 avrei di bisogno di accedere alla smem di 
         un altro blocco quando N è sufficientemente grande.
 
-        La stessa cosa succede sotto in fft_stage
+        La stessa cosa succede sotto in fft_stage.
     */
 
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
@@ -299,10 +299,13 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // lo stride si dimezza ad ogni stadio, (l'ultimo stadio considera l'intero array)
     int twiddle_index = j * (1 << (num_stadi-stadio_corrente));
     local_twiddle_factor_array[threadIdx.x] = d_twiddle_factor_array[twiddle_index];    // accesso non coalescente!!!
-    __syncthreads();
+    /*
+        Piuttosto dovrei caricare la smem al contrario, ovvero:
+            local_twiddle_factor_array[twiddle_index] = d_twiddle_factor_array[threadIdx.x];
 
-    // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
-    //        thread_id, stadio_corrente, d_twiddle_factor_array[twiddle_index].real, d_twiddle_factor_array[twiddle_index].imag);
+        Purtroppo con N abbastanza grande non ci sto nella smem di un blocco    
+    */
+    __syncthreads();
 
     // printf("\tGPU - farfalla %d - stadio %d\n\t\ttwiddle: (%f, %f)\n",
     //        thread_id, stadio_corrente, local_twiddle_factor_array[threadIdx.x].real, local_twiddle_factor_array[threadIdx.x].imag);
