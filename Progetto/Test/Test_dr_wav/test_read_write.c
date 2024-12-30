@@ -5,8 +5,8 @@
 #include <stdlib.h>
 
 int main() {
-    const char* FILENAME_IN  = "256_samples.wav";  
-    const char* FILENAME_OUT = "256_samples.wav";
+    const char* FILENAME_IN  = "A440_lungo.wav";  
+    const char* FILENAME_OUT = "2048_samples.wav";
     // Variabili per il file di input
     drwav wav_in;
     if (!drwav_init_file(&wav_in, FILENAME_IN, NULL)) {
@@ -32,10 +32,6 @@ int main() {
     }
     drwav_uninit(&wav_in);
 
-    for(int i=0; i<256; i++) {
-        printf("[%d] = %d\n", i, buffer[i]);
-    }
-
     // Preparazione per il file di output (copio tutto pari paril)
     drwav_data_format format_out;
     format_out.container = drwav_container_riff;
@@ -51,7 +47,7 @@ int main() {
     }
 
     // Scrittura dei dati audio nel file di output
-    drwav_write_pcm_frames(&wav_out, 256, buffer);
+    drwav_write_pcm_frames(&wav_out, 2048, buffer);
     drwav_uninit(&wav_out); // Chiusura del file di output
 
     // Pulizia della memoria

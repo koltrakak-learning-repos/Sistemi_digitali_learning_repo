@@ -376,8 +376,8 @@ int main(int argc, char **argv) {
     }
 
     size_t num_samples = wav_in.totalPCMFrameCount * wav_in.channels;
-    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n\n", num_samples, (double)num_samples/SAMPLE_RATE);
-
+    printf("NUMERO DI CAMPIONI NEL FILE AUDIO SCELTO: %ld; -> %0.2f secondi\n", num_samples, (double)num_samples/SAMPLE_RATE);
+    printf("dopo il padding: 2^%d\n\n", (int)ceil(log2(num_samples)));
     // importante avere una potenza di 2
     int padded_samples = 1 << (int)ceil(log2(num_samples));
     if (padded_samples > num_samples) {

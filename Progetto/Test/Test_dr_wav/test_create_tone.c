@@ -6,12 +6,12 @@
 #include <math.h>
 
 #define SAMPLE_RATE 44100  // Frequenza di campionamento (es. 44.1 kHz)
-#define DURATION 1         // Durata del tono in secondi
+#define DURATION 1000         // Durata del tono in secondi
 #define FREQUENCY 440      // Frequenza del tono (440 Hz, La4)
 #define AMPLITUDE 16384    // Ampiezza grande la metà del massimo per un valore PCM a 16 bit
 
 int main() {
-    const char* FILENAME = "A440_drwav_created.wav"; 
+    const char* FILENAME = "A440_lungo.wav"; 
     // Numero totale di campioni
     size_t num_samples = SAMPLE_RATE * DURATION;
 
