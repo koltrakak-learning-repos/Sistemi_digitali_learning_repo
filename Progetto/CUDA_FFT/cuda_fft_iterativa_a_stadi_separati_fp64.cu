@@ -320,7 +320,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     cudaMemcpy(d_input, input, N*sizeof(complex), cudaMemcpyHostToDevice);
 
     // Configurazione dei blocchi e dei thread per il bit reversal
-    int threads_per_block = 1024;
+    int threads_per_block = 256;
     int num_threads = N;
     int num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
@@ -331,7 +331,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
-    threads_per_block = 1024;
+    threads_per_block = 256;
     num_threads = N/2;  // per calcolare N campioni della trasformata, ho bisogno di soli N/2 thread data la simmetria
     num_blocks = (num_threads + threads_per_block - 1) / threads_per_block;
 
