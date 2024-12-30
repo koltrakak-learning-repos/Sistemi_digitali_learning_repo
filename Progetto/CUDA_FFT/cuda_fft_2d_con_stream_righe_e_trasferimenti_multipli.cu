@@ -542,9 +542,6 @@ void fft_iterativa_cuda_righe_multiple(complex *pinned_input, complex *pinned_ou
         return;
     }
 
-    // trasferisco in maniera asincrona al device l'input sullo stream 
-    cudaMemcpyAsync(d_input, pinned_input, N*righe*sizeof(complex), cudaMemcpyHostToDevice, stream);
-
     int num_stadi = (int)log2f((double)N);
     
     // Configurazione dei blocchi e dei thread per il bit reversal
@@ -562,10 +559,7 @@ void fft_iterativa_cuda_righe_multiple(complex *pinned_input, complex *pinned_ou
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
         fft_stage<<<num_blocks, threads_per_block, 0, stream>>>(d_output, N, righe, N_stadio_corrente, N_stadio_corrente_mezzi);
-    }
-
-    // trasferisco in maniera asincrona al device l'output sullo stream 
-    cudaMemcpyAsync(pinned_output, d_output, N*righe*sizeof(complex), cudaMemcpyDeviceToHost, stream);
+    } 
 }
 
 double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size,
@@ -588,15 +582,10 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     }
 
     // Alloca memoria sulla GPU 
-    // (occhio che sotto faccio degli scambi poco leggibili 
-    //  dato che non voglio allocare più memoria del necessario)
     complex *d_input;
     complex *d_output;
     cudaMalloc(&d_input, image_size*sizeof(complex));
     cudaMalloc(&d_output, image_size*sizeof(complex));
-
-    // // Faccio un unico grande trasferimento
-    // cudaMemcpy(d_input, input_image_data, image_size*sizeof(complex), cudaMemcpyHostToDevice);
 
     // calcolo il numero di stream necessario, ho bisogno di uno stream per 
     int bigger_size = row_size > column_size ? row_size : column_size;     
@@ -616,6 +605,10 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     for(int i = 0; i < image_size; i += row_size*RIGHE_PROCESSATE_ALLA_VOLTA) {
         int indice_blocco_righe = i/(row_size*RIGHE_PROCESSATE_ALLA_VOLTA);
         // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);  
+
+        // trasferisco in maniera asincrona al device l'input sullo stream 
+        cudaMemcpyAsync(&d_input[i], &input_image_data[i], row_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex), cudaMemcpyHostToDevice, streams[indice_blocco_righe%num_streams]);
+
         fft_iterativa_cuda_righe_multiple(&input_image_data[i], &output_fft_2D_data[i], &d_input[i], &d_output[i],
                                           row_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_righe%num_streams]);
     }
@@ -623,6 +616,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     for (int i=0; i<num_streams; i++) {
         cudaStreamSynchronize(streams[i]);
     }
+    // CHECK(cudaDeviceSynchronize());
 
     // Per fare la FFT delle colonne prima faccio la trasposta della matrice
     int block_dimx = 32; 
@@ -637,15 +631,16 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         // printf("\t\t[blocco colonne %d] utilizza lo stream %d\n", j/column_size, indice_blocco_colonne%num_streams); 
         fft_iterativa_cuda_righe_multiple(&input_image_data[j], &output_fft_2D_data[j], &d_input[j], &d_output[j],
                                           column_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_colonne%num_streams]);
+        cudaMemcpyAsync(&output_fft_2D_data[j], &d_output[j], column_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex), cudaMemcpyDeviceToHost, streams[indice_blocco_colonne%num_streams]);
     }
     // sincronizzo per assicurarmi di avere recuperato il risultato finale
     for (int i=0; i<num_streams; i++) {
         cudaStreamSynchronize(streams[i]);
     }
+    // CHECK(cudaDeviceSynchronize());
 
 
-
-    // // Faccio un unico grande trasferimento
+    // Faccio un unico grande trasferimento
     // cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
 
