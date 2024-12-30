@@ -233,7 +233,7 @@ int ifft_iterativa(complex *input, complex *output, int N) {
     return EXIT_SUCCESS;
 }
 
-// Kernel che calcola una farfalla e la sua simmetrica 
+// Kernel che calcola una farfalla
 __global__ void fft_kernel(complex *input, complex *output, int N, int num_stadi) {
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -243,29 +243,12 @@ __global__ void fft_kernel(complex *input, complex *output, int N, int num_stadi
         return;
     }
 
-    // Stadio 0:
-    // dato che ho lanciato N/2 thread, qua faccio il 
-    // riordinamento bit-reversed di due campioni
-    uint32_t rev = reverse_bits(2*thread_id);
-    rev = rev >> (32 - num_stadi);
+    // Stadio 0: lancio N/2 thread, qua faccio il riordinamento bit-reversed di due campioni
+    uint32_t rev = reverse_bits(2*thread_id) >> (32 - num_stadi);
     output[2*thread_id] = input[rev];
-
-    rev = reverse_bits(2*thread_id + 1);
-    rev = rev >> (32 - num_stadi);
+    rev = reverse_bits(2*thread_id + 1) >> (32 - num_stadi);
     output[2*thread_id + 1] = input[rev];
-    // sincronizzazione necessaria prima di passare al prossimo stadio
-    __syncthreads();
-
-    //  if(input == output) {
-    //     if (i < rev) {  
-    //         complex temp = input[i];
-    //         output[i] = input[rev];
-    //         output[rev] = temp;
-    //     }
-    // }
-    // else {
-    //     output[i] = input[rev];
-    // }
+    __syncthreads();    // servirebbe synchblocks()
 
     // Stadi: 1, ..., num_stadi
     for (int stadio = 1; stadio <= num_stadi; stadio++) {

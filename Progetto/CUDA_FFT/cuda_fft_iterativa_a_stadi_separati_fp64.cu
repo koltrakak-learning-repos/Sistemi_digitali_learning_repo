@@ -263,25 +263,15 @@ __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N) {
-        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
     // Copia input nell'output con bit-reversal (stadio 0)
-    uint32_t rev = reverse_bits(thread_id);
-    rev = rev >> (32 - num_stadi);
+    uint32_t rev = reverse_bits(thread_id) >> (32 - num_stadi);
 
-    if(input == output) {
-        if (thread_id < rev) {  
-            complex temp = input[thread_id];
-            output[thread_id] = input[rev];
-            output[rev] = temp;
-        }
-    }
-    else {
-        output[thread_id] = input[rev];
-    }
+    output[thread_id] = input[rev];    
 }
+
 
 __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_stadio_corrente_mezzi) {
     int thread_id = blockIdx.x*blockDim.x + threadIdx.x;
@@ -337,8 +327,8 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     double start = cpuSecond();
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    cudaDeviceSynchronize();
-    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+    // cudaDeviceSynchronize(); non necessario
+    // printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 1024;
@@ -351,7 +341,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
         fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
-        cudaDeviceSynchronize();
+        // cudaDeviceSynchronize(); non necessario
     }
 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
