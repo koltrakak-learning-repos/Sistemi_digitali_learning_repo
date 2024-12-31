@@ -533,10 +533,9 @@ __global__ void trasponi_matrice_kernel(complex *input, complex *output, const i
     }
 }
 /*
-    NB: questa funzione accetta solo riferimenti a memoria pinned sull'host siccome fa trasferimenti asincroni 
+    NB: questa funzione accetta solo riferimenti a memoria del device 
 */
-void fft_iterativa_cuda_righe_multiple(complex *pinned_input, complex *pinned_output, complex *d_input, complex *d_output,
-                                       int N, int righe, int threads_per_block, cudaStream_t stream) {
+void fft_iterativa_cuda_righe_multiple(complex *d_input, complex *d_output, int N, int righe, int threads_per_block, cudaStream_t stream) {
     if (N & (N - 1)) {
         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
         return;
@@ -607,10 +606,11 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
         // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);  
 
         // trasferisco in maniera asincrona al device l'input sullo stream 
-        cudaMemcpyAsync(&d_input[i], &input_image_data[i], row_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex), cudaMemcpyHostToDevice, streams[indice_blocco_righe%num_streams]);
+        cudaMemcpyAsync(&d_input[i], &input_image_data[i], row_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex),
+                        cudaMemcpyHostToDevice, streams[indice_blocco_righe%num_streams]);
 
-        fft_iterativa_cuda_righe_multiple(&input_image_data[i], &output_fft_2D_data[i], &d_input[i], &d_output[i],
-                                          row_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_righe%num_streams]);
+        fft_iterativa_cuda_righe_multiple(&d_input[i], &d_output[i], row_size, RIGHE_PROCESSATE_ALLA_VOLTA,
+                                          threads_per_block, streams[indice_blocco_righe%num_streams]);
     }
     // sincronizzo prima di fare la trasposta
     for (int i=0; i<num_streams; i++) {
@@ -629,7 +629,7 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     for(int j = 0; j<image_size; j+=column_size*RIGHE_PROCESSATE_ALLA_VOLTA) {    
         int indice_blocco_colonne = j/(column_size*RIGHE_PROCESSATE_ALLA_VOLTA);
         // printf("\t\t[blocco colonne %d] utilizza lo stream %d\n", j/column_size, indice_blocco_colonne%num_streams); 
-        fft_iterativa_cuda_righe_multiple(&input_image_data[j], &output_fft_2D_data[j], &d_input[j], &d_output[j],
+        fft_iterativa_cuda_righe_multiple(&d_input[j], &d_output[j],
                                           column_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_colonne%num_streams]);
         cudaMemcpyAsync(&output_fft_2D_data[j], &d_output[j], column_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex), cudaMemcpyDeviceToHost, streams[indice_blocco_colonne%num_streams]);
     }
