@@ -498,8 +498,8 @@ __global__ void fft_stage(complex *output, int N, int righe, int N_stadio_corren
         return;
     }
 
-    // ogni thread fa il 'thread-id-esimo' elemento di una riga per 'righe' righe
-    for(int i=0; i<righe; i++) {
+    // ogni thread calcola due elementi di una riga, per 'righe' righe
+    for(int i=0; i<righe; i++) {    // LOOP UNROLLING NON HA MIGLIORATO LE PERFORMANCE
         // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
         // Offset all'interno del blocco di farfalle considerato
