@@ -452,9 +452,14 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
     return EXIT_SUCCESS;
 }
 
-int main() {
-    const char* FILE_NAME = "image_grayscale.png";
-    const int FATTORE_DI_COMPRESSIONE = 20000;
+int main(int argc, char** argv) {
+    if(argc < 3) {
+        printf("usage: ./fft-2D <filename> <fattore di compressione\n");
+        exit(1);
+    }
+
+    char* FILE_NAME = argv[1];
+    const int FATTORE_DI_COMPRESSIONE = atoi(argv[2]);
 
     // Load the image
     int width, height, channels;
@@ -500,7 +505,7 @@ int main() {
     uint8_t* output_image_data = (uint8_t*)malloc(image_size);
     convert_to_uint8(complex_input_image_data, output_image_data, image_size);
 
-    // unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
+    unpad_image_to_original_size(&output_image_data, &width, &height, original_width, original_height, channels);
     
     // Save the decompressed image
     char DECOMPRESSED_FILE_NAME[256];
