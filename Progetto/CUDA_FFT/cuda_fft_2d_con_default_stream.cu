@@ -50,7 +50,6 @@ double cpuSecond() {
 }
 
 void checkResult(complex *hostRef, complex *gpuRef, const int N) {
-    // epsilon molto largo. Non so perchè la versione GPU differisce rispetto a quella CPU verso la quinta cifra decimale
     double epsilon = 1.0E-4;    
     bool match = 1;
 
@@ -112,7 +111,7 @@ void convert_to_uint8(complex *input, uint8_t *output, int N) {
 
 void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* height, int channels) {
     if( !(*width & (*width - 1)) && !(*height & (*height - 1)) ) {
-        // sono già potenze di due
+        // le dimensioni sono già potenze di due
         return;
     }
 
@@ -133,7 +132,6 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
             }
         }
     }
-
     
     free(*input_image_data);
     // aggiorno parametri per output
@@ -288,7 +286,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
-    // printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -300,13 +297,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
         // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
-            /*
-                Abbiamo:
-                    - output[k...N/2-1] sono le componenti della trasformata pari, mentre
-                      output[N/2...N-1] sono le componenti della trasformata dispari.
-                        - Guarda diagramma a farfalla. 
-                    - j = offset all'interno del blocco di farfalle considerato
-            */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
@@ -413,8 +403,7 @@ int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize
         return -1;
     }
 
-    // qua utilizzo delle variabili di appoggio dato che non posso modificare input_image_data
-    // siccome nel main viene riutilizzata dalla GPU
+    // memoria di appoggio
     complex* temp_trasformata_righe = (complex*)malloc(imageSize*sizeof(complex)); 
     complex* temp_trasposta         = (complex*)malloc(imageSize*sizeof(complex)); 
 
@@ -454,6 +443,9 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
         return -1;
     }
 
+    // qua mi permetto di risparmiare le allocazioni di appoggio riutilizzando i due array che ho 
+    // a disposizione.
+
     // IFFT delle colonne
     for(int j = 0; j < imageSize; j+=column_size) {     
         ifft_iterativa(&input_fft_2D_data[j], &output_image_data[j], column_size);
@@ -492,7 +484,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N/2) {
-        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
@@ -501,10 +492,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // Offset all'interno del blocco di farfalle considerato
     int j = thread_id % N_stadio_corrente_mezzi;
 
-    /*
-        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
-        potrebbe essere precalcolare il vettore dei twiddle factor  
-    */
     float phi = (-2.0f*PI/N_stadio_corrente) * j;
     complex twiddle_factor = {
         __cosf(phi),
@@ -514,17 +501,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     complex a = output[k + j];
     complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
-    /*
-        OTTIMIZZAZIONE:
-    
-        On average, each warp of this kernel spends 17.2 cycles being stalled waiting for the L1 INSTRUCTION QUEUE
-        for local and global (LG) memory operations to be not full.
-        Typically, this stall occurs only when executing local or global memory instructions extremely frequently.
-        
-        AVOID REDUNDANT GLOBAL MEMORY ACCESSES.
-
-        Utilizzo shared memory forse?
-    */
     output[k + j].real = a.real + b.real;
     output[k + j].imag = a.imag + b.imag;
     // simmetria
@@ -596,8 +572,7 @@ double fft_iterativa_cuda(complex *d_input, complex *d_output, int N) {
 }
 
 /*
-    Le chiamate a fft_iterativa_cuda sono SINCRONE con la GPU a causa della sincronizzazione implicita 
-    imposta dal default stream
+    Le chiamate a 'fft_iterativa_cuda' vengono sequenzializzate nel default stream
 */
 double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int image_size, int row_size, int column_size) {
     // Le dimensioni dei dati devono essere potenze di due
@@ -657,11 +632,6 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
 
 
 
-
-
-
-
-
 int main(int argc, char **argv) {
     if (argc < 2) {
         printf("Usage: %s <file_name>\n", argv[0]);
@@ -679,7 +649,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     printf("Image loaded: %dx%d with %d channels\n", width, height, channels);
-    // salvo le dimensioni originali per dopo
+    // salvo le dimensioni originali in caso voglia eliminare il padding dopo la decompressione
     // int original_width = width;
     // int original_height = height;
 
@@ -721,7 +691,6 @@ int main(int argc, char **argv) {
     printf("Using Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
-    
     complex* gpu_ref_output_fft_2D_data = (complex *)malloc(image_size*sizeof(complex));
     
     double elapsed_device = fft_2D_cuda(complex_input_image_data, gpu_ref_output_fft_2D_data, image_size, width * channels, height);
@@ -739,10 +708,6 @@ int main(int argc, char **argv) {
 
 
 
-
-    /* --- PARTE IFFT-2D --- */
-
-    
 
 
 
