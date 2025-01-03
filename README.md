@@ -6,19 +6,20 @@ Il progetto implementa un **algoritmo di compressione basato su una implementazi
 Il codice si trova all'interno della cartella *"Progetto/CUDA_FFT/"*. Al suo interno troverete:
 - Vari file '.cu' che contengono il codice (sia sequenziale che parallelo) delle varie versioni, mano a mano ottimizzate, del codice del mio progetto.
 - Una cartella chiamata *"nsight-compute_reports/"* in cui ho salvato i file *.ncu-rep* per i miei kernel.
+- Una cartella chiamata *"nvvp_reports/"* in cui ho salvato i file *.nvvp* di Nvidia Visual Profiler in cui si può osservare il grado di concorrenza ottenuto tra nelle varie versioni del codice.
 - Una cartella chiamata *"versioni_sbagliate/"* in cui ho salvato approcci NON funzionanti di parallelizzazione del mio codice.
-- Una cartella chiamata *"versioni_peggiorative/"* in cui ho salvato approcci che hanno peggiorato le performance del mio codice.
+- Una cartella chiamata *"versioni_senza_miglioramenti_o_peggiorative/"* in cui ho salvato approcci che non hanno influenzato o hanno peggiorato le performance del mio codice.
 
-### Cosa guardare? (per i prof. Tosi e Mattoccia)
+## Cosa guardare? (per i prof. Tosi e Mattoccia)
 Sicuramente il codice principale dentro a *"Progetto/CUDA_FFT/"*.
 
-Durante la presentazione del mio progetto, ho intenzione di mostrare anche qualcosa riguardo le versioni peggiorative dentro a *"Progetto/CUDA_FFT/versioni_peggiorative"*. Ad esempio:
-- qual'è stata l'idea.
-- oppure, perchè le performance sono peggiorate.
+Durante la presentazione del mio progetto, ho intenzione di mostrare anche qualcosa riguardo le versioni peggiorative dentro a *"Progetto/CUDA_FFT/versioni_senza_miglioramenti_o_peggiorative"*. Ad esempio:
+- qual'è stata l'idea di miglioramento che non ha funzionato.
+- come mai questa idea non ha funzionato.
   
-Per voi non è quindi strettamente necessario andare a vedere cosa c'è dentro, ma potrebbe esservi utile siccome è una cosa che porterò all'esame.
+Per voi non è quindi strettamente necessario andare a vedere cosa c'è dentro, ma potrebbe esservi utile siccome è una cosa che mi piacerebbe portare all'esame.
 
-Le versioni_sbagliate invece, in quanto non funzionanti, non le porterò all'esame e quindi potete ignorarle.
+Le versioni_sbagliate invece, in quanto non funzionanti, non le porterò all'esame e quindi possono essere ignorate.
 
 ## Resto della repo
 - Le cartelle *"Modulo1/"* e *"Modulo2/"* contengono appunti di teoria presi durante il corso delle lezioni.
