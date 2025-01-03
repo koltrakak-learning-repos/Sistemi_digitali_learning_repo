@@ -1,6 +1,6 @@
 Repository in cui ho salvato gli appunti ed il progetto svolto per il corso di Sistemi Digitali-M durante l'anno 2024/2025.
 
-## CODICE PROGETTO (per i prof. Tosi e Mattoccia)
+## CODICE PROGETTO
 Il progetto implementa un **algoritmo di compressione basato su una implementazione parallela con CUDA di una FFT-2D**.
 
 Il codice si trova all'interno della cartella *"Progetto/CUDA_FFT/"*. Al suo interno troverete:
