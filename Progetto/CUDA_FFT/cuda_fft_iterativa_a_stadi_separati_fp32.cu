@@ -28,6 +28,9 @@ typedef struct {
     float imag;
 } complex;
 
+/*
+    funzioni di utilità
+*/
 __host__ __device__ complex prodotto_tra_complessi(complex a, complex b) {
     complex result;
 
@@ -44,7 +47,6 @@ double cpuSecond() {
 }
 
 void checkResult(complex *hostRef, complex *gpuRef, const int N) {
-    // epsilon molto largo. Non so perchè la versione GPU differisce rispetto a quella CPU verso la quinta cifra decimale
     double epsilon = 1.0E-4;    
     bool match = 1;
 
@@ -60,9 +62,6 @@ void checkResult(complex *hostRef, complex *gpuRef, const int N) {
     if (match)
         printf("Arrays match.\n\n");
 }
-
-
-
 
 // Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
 // dei campioni della trasformata in maniera efficiente O(log n), rispetto all'usare un ciclo O(n)
@@ -108,7 +107,9 @@ void convert_to_short(complex *input, short *output, int N) {
 }
 
 
-
+/*
+    funzioni per fft lato cpu
+*/
 int fft_iterativa(complex *input, complex *output, int N) {
     // N & (N - 1) = ...01000... & ...00111... = 0
     if (N & (N - 1)) {
@@ -147,7 +148,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
-    printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -159,13 +159,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
         // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
-            /*
-                Abbiamo:
-                    - output[k...N/2-1] sono le componenti della trasformata pari, mentre
-                      output[N/2...N-1] sono le componenti della trasformata dispari.
-                        - Guarda diagramma a farfalla. 
-                    - j = offset all'interno del blocco di farfalle considerato
-            */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
@@ -256,8 +249,9 @@ int ifft_iterativa(complex *input, complex *output, int N) {
 
 
 
-
-
+/*
+    funzioni per fft lato gpu
+*/
 __global__ void fft_bit_reversal(complex *input, complex *output, int N, int num_stadi) {
     uint32_t thread_id = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -278,7 +272,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
 
     // controllo se ci sono dei thread in eccesso
     if (thread_id >= N/2) {
-        // printf("\tsono un thread in eccesso\n");
         return;
     }
 
@@ -289,10 +282,6 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // % evitare il modulo non cambia le performance
     // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
-    /*
-        TODO: ogni thread che produce lo stesso 'j' ripete questo calcolo inutilmente
-        potrebbe essere utile precalcolare il vettore dei twiddle factor  
-    */
     float phi = __fdividef(-2.0f*PI, N_stadio_corrente) * j;
     complex twiddle_factor = {
         __cosf(phi),
@@ -333,8 +322,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
     double start = cpuSecond();
     // stadio 0
     fft_bit_reversal<<<num_blocks, threads_per_block>>>(d_input, d_output, N, num_stadi);
-    // cudaDeviceSynchronize(); non necessario
-    printf("\tgpu bit_reversal: %f\n", cpuSecond() - start);
+    // cudaDeviceSynchronize(); // non necessario grazie al default stream
 
     // Configurazione dei blocchi e dei thread per gli stadi (in generale diversa da quella per il bit reversal)
     threads_per_block = 256;
@@ -347,7 +335,7 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
         int N_stadio_corrente_mezzi = N_stadio_corrente/2;
 
         fft_stage<<<num_blocks, threads_per_block>>>(d_output, N, N_stadio_corrente, N_stadio_corrente_mezzi);
-        // cudaDeviceSynchronize(); non necessario
+        // cudaDeviceSynchronize(); // non necessario grazie al default stream
     }
 
     cudaMemcpy(output, d_output, N*sizeof(complex), cudaMemcpyDeviceToHost);
@@ -360,7 +348,10 @@ double fft_iterativa_cuda(complex *input, complex *output, int N) {
 }
 
 
-
+/*
+    NOTA: per il parsing di file .wav ho usato la la seguente libreria di nome: "dr_wav"
+        -> https://github.com/mackron/dr_libs/blob/master/dr_wav.h
+*/
 int main(int argc, char **argv) {
     if (argc < 2) {
         printf("Usage: %s <file_name>\n", argv[0]);
@@ -369,7 +360,6 @@ int main(int argc, char **argv) {
 
     const char* FILE_NAME = argv[1];
     drwav wav_in;
-    
     if (!drwav_init_file(&wav_in, FILE_NAME, NULL)) {
         fprintf(stderr, "Errore nell'aprire il file %s.wav.\n", FILE_NAME);
         return 1;
@@ -386,7 +376,7 @@ int main(int argc, char **argv) {
 
     /*
         Alloco memoria per:
-            - campioni PCM a 16 bit del file di ingresso
+            - campioni PCM a 16 bit del file .wav in ingresso
             - campioni PCM a 16 bit del file di ingresso convertiti in numeri complessi
             - campioni della trasformata ottenuti con FFT
     */
@@ -447,7 +437,6 @@ int main(int argc, char **argv) {
     printf("Using Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
-    
     complex* gpu_ref_fft_samples = (complex *)malloc(num_samples*sizeof(complex));
     
     double elapsed_device = fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples); 
@@ -460,12 +449,6 @@ int main(int argc, char **argv) {
 
 
 
-
-
-
-
-
-
     /* --- PARTE IFFT --- */
 
     
@@ -473,7 +456,6 @@ int main(int argc, char **argv) {
     // inizializzazione dati
     char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
     sprintf(generated_filename, "GPU-IFFT-generated-%s", FILE_NAME);
-    // mi assicuro di non imbrogliare ricopiando i dati di prima
     memset(signal_samples, 0, num_samples*sizeof(short));
     memset(complex_signal_samples, 0, num_samples);
 
@@ -497,8 +479,7 @@ int main(int argc, char **argv) {
 
     // Scrittura dei dati audio nel file di output
     drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
-    drwav_uninit(&wav_out); // Chiusura del file di output
-
+    drwav_uninit(&wav_out);
     printf("File WAV %s creato con successo\n", generated_filename);
 
     free(signal_samples);
