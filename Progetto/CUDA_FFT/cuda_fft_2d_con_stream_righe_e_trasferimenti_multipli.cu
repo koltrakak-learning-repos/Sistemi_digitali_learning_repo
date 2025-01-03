@@ -50,21 +50,20 @@ double cpuSecond() {
 }
 
 void checkResult(complex *hostRef, complex *gpuRef, const int N) {
-    // epsilon molto largo. Non so perchè la versione GPU differisce rispetto a quella CPU verso la quinta cifra decimale
     double epsilon = 1.0E-4;    
     bool match = 1;
 
     for (int i = 0; i < N; i++) {
         if (fabs(hostRef[i].real - gpuRef[i].real) > epsilon || fabs(hostRef[i].imag - gpuRef[i].imag) > epsilon) {
             match = 0;
-            printf("\nArrays do not match!\n");
-            printf("\thost (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
+            printf("Arrays do not match!\n");
+            printf("host (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
             break;
         }
     }
 
     if (match)
-        printf("\nArrays match.\n\n");
+        printf("Arrays match.\n\n");
 }
 
 // Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
@@ -112,7 +111,7 @@ void convert_to_uint8(complex *input, uint8_t *output, int N) {
 
 void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* height, int channels) {
     if( !(*width & (*width - 1)) && !(*height & (*height - 1)) ) {
-        // sono già potenze di due
+        // le dimensioni sono già potenze di due
         return;
     }
 
@@ -133,7 +132,6 @@ void pad_image_to_power_of_two(uint8_t** input_image_data, int* width, int* heig
             }
         }
     }
-
     
     free(*input_image_data);
     // aggiorno parametri per output
@@ -288,7 +286,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
             output[i] = input[rev];
         }
     }
-    // printf("\tcpu bit_reversal: %f\n", cpuSecond() - start);
 
     // Stadi 1, ..., log_2(N)
     for (int stadio = 1; stadio <= num_stadi; stadio++) {
@@ -300,13 +297,6 @@ int fft_iterativa(complex *input, complex *output, int N) {
         // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
-            /*
-                Abbiamo:
-                    - output[k...N/2-1] sono le componenti della trasformata pari, mentre
-                      output[N/2...N-1] sono le componenti della trasformata dispari.
-                        - Guarda diagramma a farfalla. 
-                    - j = offset all'interno del blocco di farfalle considerato
-            */
             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
                 float phi = (-2*PI/N_stadio_corrente) * j; 
                 complex twiddle_factor = {
@@ -413,8 +403,7 @@ int fft_2D(complex *input_image_data, complex *output_fft_2D_data, int imageSize
         return -1;
     }
 
-    // qua utilizzo delle variabili di appoggio dato che non posso modificare input_image_data
-    // siccome nel main viene riutilizzata dalla GPU
+    // memoria di appoggio
     complex* temp_trasformata_righe = (complex*)malloc(imageSize*sizeof(complex)); 
     complex* temp_trasposta         = (complex*)malloc(imageSize*sizeof(complex)); 
 
@@ -453,6 +442,9 @@ int ifft_2D(complex *input_fft_2D_data, complex *output_image_data, int imageSiz
 
         return -1;
     }
+
+    // qua mi permetto di risparmiare le allocazioni di appoggio riutilizzando i due array che ho 
+    // a disposizione.
 
     // IFFT delle colonne
     for(int j = 0; j < imageSize; j+=column_size) {     
@@ -499,12 +491,12 @@ __global__ void fft_stage(complex *output, int N, int righe, int N_stadio_corren
     }
 
     // ogni thread calcola due elementi di una riga, per 'righe' righe
-    for(int i=0; i<righe; i++) {    // LOOP UNROLLING NON HA MIGLIORATO LE PERFORMANCE
+    for(int i=0; i<righe; i++) {    // LOOP UNROLLING NON HA MIGLIORATO LE PERFORMANCE (vedi versioni_senza_miglioramenti_o_peggiorative/)
         // Indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
         int k = (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente;
         // Offset all'interno del blocco di farfalle considerato
         int j = thread_id % N_stadio_corrente_mezzi;
-        // Aggiungo l'offseti di riga
+        // Aggiungo l'offset di riga
         int kj_riga = k + j +i*N;
 
         float phi = (-2.0f*PI/N_stadio_corrente) * j;
@@ -603,8 +595,6 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     // FFT delle righe, (RIGHE_PROCESSATE_ALLA_VOLTA righe assegnate ad una singola FFT)
     for(int i = 0; i < image_size; i += row_size*RIGHE_PROCESSATE_ALLA_VOLTA) {
         int indice_blocco_righe = i/(row_size*RIGHE_PROCESSATE_ALLA_VOLTA);
-        // printf("\t\t[blocco righe %d] utilizza lo stream %d\n", i/row_size, indice_blocco_righe%num_streams);  
-
         // trasferisco in maniera asincrona al device l'input sullo stream 
         cudaMemcpyAsync(&d_input[i], &input_image_data[i], row_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex),
                         cudaMemcpyHostToDevice, streams[indice_blocco_righe%num_streams]);
@@ -616,7 +606,6 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     for (int i=0; i<num_streams; i++) {
         cudaStreamSynchronize(streams[i]);
     }
-    // CHECK(cudaDeviceSynchronize());
 
     // Per fare la FFT delle colonne prima faccio la trasposta della matrice
     int block_dimx = 32; 
@@ -628,23 +617,17 @@ double fft_2D_cuda(complex *input_image_data, complex *output_fft_2D_data, int i
     // FFT delle colonne
     for(int j = 0; j<image_size; j+=column_size*RIGHE_PROCESSATE_ALLA_VOLTA) {    
         int indice_blocco_colonne = j/(column_size*RIGHE_PROCESSATE_ALLA_VOLTA);
-        // printf("\t\t[blocco colonne %d] utilizza lo stream %d\n", j/column_size, indice_blocco_colonne%num_streams); 
-        fft_iterativa_cuda_righe_multiple(&d_input[j], &d_output[j],
-                                          column_size, RIGHE_PROCESSATE_ALLA_VOLTA, threads_per_block, streams[indice_blocco_colonne%num_streams]);
-        cudaMemcpyAsync(&output_fft_2D_data[j], &d_output[j], column_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex), cudaMemcpyDeviceToHost, streams[indice_blocco_colonne%num_streams]);
+        fft_iterativa_cuda_righe_multiple(&d_input[j], &d_output[j], column_size, RIGHE_PROCESSATE_ALLA_VOLTA,
+                                          threads_per_block, streams[indice_blocco_colonne%num_streams]);
+
+        cudaMemcpyAsync(&output_fft_2D_data[j], &d_output[j], column_size*RIGHE_PROCESSATE_ALLA_VOLTA*sizeof(complex),
+                        cudaMemcpyDeviceToHost, streams[indice_blocco_colonne%num_streams]);
     }
     // sincronizzo per assicurarmi di avere recuperato il risultato finale
     for (int i=0; i<num_streams; i++) {
         cudaStreamSynchronize(streams[i]);
     }
-    // CHECK(cudaDeviceSynchronize());
-
-
-    // Faccio un unico grande trasferimento
-    // cudaMemcpy(output_fft_2D_data, d_output, image_size*sizeof(complex), cudaMemcpyDeviceToHost);
     double elapsed_gpu = cpuSecond() - start;
-
-
 
     // cleanup
     cudaFree(d_input);
@@ -683,7 +666,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     printf("Image loaded: %dx%d with %d channels\n", width, height, channels);
-    // salvo le dimensioni originali per dopo
+    // salvo le dimensioni originali in caso voglia eliminare il padding dopo la decompressione
     // int original_width = width;
     // int original_height = height;
 
@@ -727,20 +710,6 @@ int main(int argc, char **argv) {
     printf("\nUsing Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
-    // printf("CUDA System Information:\n");
-    // printf("CUDA Driver Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
-    // printf("CUDA Runtime Version: %d.%d\n", CUDART_VERSION / 1000, CUDART_VERSION % 100);
-    // printf("\t1. Compute Capability: %d.%d\n", deviceProp.major, deviceProp.minor);
-    // printf("\t2. Total Global Memory: %.2f GB\n", deviceProp.totalGlobalMem / (1024.0 * 1024.0 * 1024.0));
-    // printf("\t3. Number of Multiprocessors: %d\n", deviceProp.multiProcessorCount);
-    // printf("\t\t4. Maximum number of blocks per MultiProcessor: %d\n", deviceProp.maxBlocksPerMultiProcessor);
-    // printf("\t\t5. Maximum number of threads per MultiProcessor: %d\n", deviceProp.maxThreadsPerMultiProcessor);
-    // printf("\t8. Shared Memory per Block: %lu KB\n", deviceProp.sharedMemPerBlock / 1024);
-    // printf("\t9. Maximum Threads per Block: %d\n", deviceProp.maxThreadsPerBlock);
-    // printf("\t10. Maximum Grid Dimensions: (%d, %d, %d)\n", deviceProp.maxGridSize[0], deviceProp.maxGridSize[1], deviceProp.maxGridSize[2]);
-    // printf("\t11. Maximum Block Dimensions: (%d, %d, %d)\n", deviceProp.maxThreadsDim[0], deviceProp.maxThreadsDim[1], deviceProp.maxThreadsDim[2]);
-    // printf("\t12. Maximum number of concurrent kernels: %d\n\n", deviceProp.concurrentKernels);
-
     // alloco memoria pinned per fare trasferimenti asincroni
     complex* gpu_ref_output_fft_2D_data;
     cudaMallocHost((complex **)&gpu_ref_output_fft_2D_data, image_size*sizeof(complex));    
@@ -758,13 +727,6 @@ int main(int argc, char **argv) {
 
 
 
-
-
-
-
-    /* --- PARTE IFFT-2D --- */
-
-    
 
 
 
