@@ -6,7 +6,7 @@ Il progetto implementa un **algoritmo di compressione basato su una implementazi
 Il codice si trova all'interno della cartella *"Progetto/CUDA_FFT/"*. Al suo interno troverete:
 - Vari file '.cu' che contengono il codice (sia sequenziale che parallelo) delle varie versioni, mano a mano ottimizzate, del codice del mio progetto.
 - Una cartella chiamata *"nsight-compute_reports/"* in cui ho salvato i file *.ncu-rep* per i miei kernel.
-- Una cartella chiamata *"nvvp_reports/"* in cui ho salvato i file *.nvvp* di Nvidia Visual Profiler in cui si può osservare il grado di concorrenza ottenuto tra nelle varie versioni del codice.
+- Una cartella chiamata *"nvvp_reports/"* in cui ho salvato i file *.nvvp* di Nvidia Visual Profiler in cui si può osservare il grado di concorrenza ottenuto nelle varie versioni del codice.
 - Una cartella chiamata *"versioni_sbagliate/"* in cui ho salvato approcci NON funzionanti di parallelizzazione del mio codice.
 - Una cartella chiamata *"versioni_senza_miglioramenti_o_peggiorative/"* in cui ho salvato approcci che non hanno influenzato o hanno peggiorato le performance del mio codice.
 
