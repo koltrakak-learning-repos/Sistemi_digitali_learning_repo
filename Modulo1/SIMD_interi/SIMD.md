@@ -88,7 +88,7 @@ I dati scritti in memoria possono essere byte (16 elementi), interi a 16 bit (8 
 
 
 ### Allineamento
-Se uso indirizzi allineati con la taglia del registro, mi trovo tutto il registro esteso in una unica cache line (linee di cache sono sempre multiple di 2 e quindi i registri estesi si infilano bene senza accavvallamenti su più cache lines).
+Se uso indirizzi allineati con la taglia del registro, mi trovo tutto il registro esteso in una unica cache line (linee di cache sono sempre multiple di 2 e quindi i registri estesi si infilano bene senza accavvallamenti su più cache lines) e riesco a caricare il registro (e la cache) con un unico trasferimento di memoria.
 
 Per questo motivo è sempre bene non leggere/scrivere mai in maniera disallineata. Altrimenti devo fare due read/write -> peggioramento delle performance.
 
@@ -123,7 +123,7 @@ Il mascheramento è utilizzato molto nel mondo SIMD. Questo perchè __non sono p
 
 Una soluzione, se si vuole applicare delle operazioni solo su alcuni dati di un registro esteso è usare il __mascheramento__.
 
-Una situazione simile si incontra con la gestione dell'overflow nel caso delle somme fra registri estesi, quest'ultimo infatti in SIMD non è gestito.
+Una situazione simile si incontra con la **gestione dell'overflow** nel caso delle somme fra registri estesi, quest'ultimo infatti in SIMD non è gestito.
 
 ### operazioni logiche
 Anche le operazioni logiche bit a bit tra registri estesi vengono usate molto in questo mondo. Alcune notevoli sono:
