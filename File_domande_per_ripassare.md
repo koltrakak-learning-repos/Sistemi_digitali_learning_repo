@@ -63,21 +63,37 @@
 
     Inoltre, la distinzione tra blocchi e griglie permette operazioni, come sincronizzazione e allocazione di memoria condivisa, che sarebbero troppo costose a livello globale.
 
-13. Che cos'è un kernel CUDA? 
+11. Che cos'è un kernel CUDA? 
     Un kernel CUDA è una funzione che viene eseguita in parallelo sulla GPU da migliaia/milioni di thread. Al suo interno vi è definito che cosa il singolo thread dovrà fare, ed il mapping ai dati che dovrà elaborare.
 
-1. Che influenza ha il dimensionamento di blocchi e griglie?
+12. Ci sono dei limiti per quanto riguarda il dimensionamento di blocchi e griglie?
+    Si, il numero massimo totale di thread per blocco è 1024 per la maggior parte delle GPU. Inoltre, le dimensioni di griglie e blocchi (anche 3D) sono limitate. I valori variano in base a alla compute capability della GPU.
 
-1. Ci sono dei limiti per quanto riguarda il dimensionamento di blocchi e griglie?
-l numero massimo totale di thread per blocco è 1024 per la maggior parte delle GPU (compute capability >= 2.x).
-• Un blocco può essere organizzato in 1, 2 o 3 dimensioni, ma ci sono limiti per ciascuna dimensione. Esempio:
-○ x: 1024 , y: 1024, z: 64
-• Il prodotto delle dimensioni x, y e z non può superare 1024 (queste limitazioni potrebbero cambiare in futuro).
+    La Compute Capability (CC) di NVIDIA è un numero che identifica le caratteristiche e le capacità di una GPU NVIDIA in termini di funzionalità supportate e limiti hardware.
 
-La Compute Capability (CC) di NVIDIA è un numero che identifica le caratteristiche e le capacità di una GPU
-NVIDIA in termini di funzionalità supportate e limiti hardware
+# 13. Che influenza ha il dimensionamento di blocchi e griglie sulle performance? (aggiusta parlando anche di occupancy e latency hiding)
+    Il dimensionamento di blocchi è griglie ha conseguenze dirette sull'utilizzo delle risorse della GPU. Ad esempio: una configurazione con una manciata di blocchi con tanti thread, non attiva tutti gli SM della GPU diminuendo il parallelismo. Al contrario una configurazione con tanti blocchi composti da una manciata di thread causa un overhead eccessivo per lo scheduler dei blocchi **e non sfrutta bene le risorse all'interno dell'SM/SMSP in cui il blocco viene schedulato (un SM è in grado di gestire blocchi composti da centinaia di thread, pensa al caso estremo di <32 thread per blocco)**(???)
 
-1. Che influenza ha il mapping dei thread?
+    Bonus: blocchi più grandi che accedono a dati localmente vicini possono anche sfruttare meglio la cache L1 rispetto a blocchi più piccoli.
+
+# 14. Che influenza ha il mapping dei dati ai thread sulle performance?
+    Innanzitutto, è ovvio che il mapping dei dati deve essere corretto, ovvero bisogna garantire che il mapping permetta di ottenere   un risultato del calcolo parallelo uguale a quello del calcolo sequenziale. Per fare questo il mapping deve: garantire una copertura completa dei dati senza ripetizioni.
+
+    Più interessante è il fatto che il mapping dei dati influenzi la scalabilità ed il parallelismo che si riesce ad ottenere da un kernel. Con un mapping inappropriato il kernel potrebbe non scalare al crescere della dimensione dei dati (pensa all'esempio del kernel in cui un thread  somma un'intera colonna tra due matrici) oppure potrebbe diventare proprio impossibile risolvere il problema (pensa ad un mapping con solo threadId -> si è limitati dalla dimensione del blocco).
+
+    Altri aspetti influenzati dal mapping dei dati sono: l'accesso alla memoria che idealmente deve essere allineato e coalescente, e il bilanciamento del carico tra i thread che idealmente deve essere uniforme.
+
+    Riassumendo il mapping deve garantire:
+    - Copertura completa dei dati
+    - Scalabilità per diverse dimensioni dei dati
+    - Coerenza dei risultati con l'elaborazione sequenziale
+    - Accesso efficiente alla memoria
+
+15. Esistono diversi metodi di mapping dei dati?
+    Si, noi ne abbiamo visti due:
+        - metodo lineare: più comodo quando si ha a che fare con configurazioni 1D
+        - metodo per coordinate: più comodo quando si ha a che fare con configurazioni 2D/3D 
+    Metodi diversi possono produrre indici globali differenti per lo stesso thread, impattando in questo modo le prestazione del kernel per aspetti come la coalescenza degli accessi in memoria.
 
 
 
