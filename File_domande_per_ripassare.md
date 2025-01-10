@@ -71,10 +71,16 @@ Si, il numero massimo totale di thread per blocco è 1024 per la maggior parte d
 
 La Compute Capability (CC) di NVIDIA è un numero che identifica le caratteristiche e le capacità di una GPU NVIDIA in termini di funzionalità supportate e limiti hardware.
 
-# 13. Che influenza ha il dimensionamento di blocchi e griglie sulle performance? (aggiusta parlando anche di occupancy e latency hiding)
-Il dimensionamento di blocchi è griglie ha conseguenze dirette sull'utilizzo delle risorse della GPU. Ad esempio: una configurazione con una manciata di blocchi con tanti thread, non attiva tutti gli SM della GPU diminuendo il parallelismo. Al contrario una configurazione con tanti blocchi composti da una manciata di thread causa un overhead eccessivo per lo scheduler dei blocchi **e non sfrutta bene le risorse all'interno dell'SM/SMSP in cui il blocco viene schedulato (un SM è in grado di gestire blocchi composti da centinaia di thread, pensa al caso estremo di <32 thread per blocco)**(???)
+# 13. Che influenza ha il dimensionamento di blocchi e griglie sulle performance?
+Il dimensionamento di blocchi è griglie ha conseguenze dirette sull'utilizzo delle risorse della GPU e sull'occupancy raggiungibile.
 
-Bonus: blocchi più grandi che accedono a dati localmente vicini possono anche sfruttare meglio la cache L1 rispetto a blocchi più piccoli.
+Ad esempio:
+- una configurazione con una manciata (< num SM) di blocchi con tanti thread, non attiva tutti gli SM della GPU diminuendo il parallelismo.
+- al contrario, una configurazione con tanti blocchi composti da una manciata di thread causa un overhead eccessivo per lo scheduler dei blocchi e **potrebbe diminuire l'occupancy siccome si è limitati dal numero di blocchi assegnabile ad un SM**.
+
+Altri fattori possono essere:
+- blocchi più grandi che accedono a dati localmente vicini possono anche sfruttare meglio la cache L1 rispetto a blocchi più piccoli.
+- blocchi con dimensione non multipla di 32 causano l'esecuzione di warp con molti thread disabilitati con spreco delle unità di calcolo
 
 # 14. Che influenza ha il mapping dei dati ai thread sulle performance?
 Innanzitutto, è ovvio che il mapping dei dati deve essere corretto, ovvero bisogna garantire che il mapping permetta di ottenere   un risultato del calcolo parallelo uguale a quello del calcolo sequenziale. Per fare questo il mapping deve: garantire una copertura completa dei dati senza ripetizioni.
@@ -161,6 +167,10 @@ Le unità che si occupano del warp scheduling sono:
 - Le dispatch unit, responsabili dell’assegnazione effettiva alle unità di esecuzione
 Più Warp scheduler e dispatch unit si ha disposizione all'interno di un SMSP, più in fretta si riesce a riempire quest'ultimo e più in fretta si riesce a sostituire molti warp che entrano in stallo.
 
+La tecnica di sopra rientra nella categoria del Thread Level Parallelism. Un'ulteriore tecnica adottabile (ILP) consiste nel fare emettere al warp scheduler istruzioni indipendenti apparteneti allo stesso warp. 
+
+TLP e ILP contribuiscono a mantenere le unità di calcolo attive e occupate riducendo i tempi morti dovuti alle operazioni a latenza elevata come accessi alla memoria globale (latency hiding).
+
 **21. Parlami di come si può ottenere il latency hiding massimo**
 Siccome il latency hiding si ottiene sostituende il warp correntemente in stallo con un warp pronto, una condizione necessaria per massimizzare quest'ultimo è avere a disposizione "tanti" warp pronti.
 
@@ -172,6 +182,8 @@ Con:
 - Latenza = Tempo di completamento di un'istruzione (in cicli di clock).
 - Throughput = Numero di warp (e, quindi 32 operazioni) eseguiti per ciclo di clock.
 - Warp Richiesti = Numero di warp pronti necessari per nascondere la latenza ed ottenere il throughput desiderato
+
+Inoltre, una ulteriore strategia possibile è cercare di scrivere operazioni all'interno del kernel il più possibile indipendenti in modo che possano essere emesse in sequenza dal warp scheduler(vedi ILP). Questo è molto **sinergistico con il loop unrolling**, che di suo riduce il numero di istruzioni di controllo da eseguire, ma inoltre aumenta il numero di operazioni indipendenti (vedi riduzione parallela)
 
 **22. Che cos'è Indipendent Thread Scheduling?**
 Prima di ITS il livello di concorrenza minimo era tra Warp siccome era l'intero warp ad avere un PC ed uno stack. Con ITS ogni thread mantiene il proprio stato di esecuzione, inclusi program counter e stack. Di conseguenza, dopo ITS, il livello di concorrenza minimo diventa quello dei singoli thread, anche appartenenti a warp diversi o a rami diversi dello stesso warp.
@@ -188,3 +200,42 @@ Infine, un ottimizzatore di scheduling raggruppa i thread attivi dello stesso wa
 Quando più thread accedono e modificano la stessa locazione di memoria contemporaneamente si ha una corsa critica che produce risultati imprevedibili. Le operazioni atomiche garantiscono la correttezza del risultato impattando pesantemente però sulle performance siccome i thread vengono sequenzializzati durante l'esecuzione di quest'ultima.
 
 Una soluzione a questo problema è duplicare i dati sulla SMEM limitando la sequenzializzazione a livello di blocco. Questa idea ci è stata anche mostrata dal professor Mattoccia nel contesto di OpenMP ed è quindi applicabile anche al di fuori di CUDA. 
+
+**24. Che cos'è il resource partitioning in CUDA?**
+Il Resource Partitioning riguarda la suddivisione e la gestione delle risorse hardware limitate all'interno di una GPU, in particolare all'interno di ogni SM. L'obiettivo è massimizzare l'occupancy ed il parallelismo (permettendo l'assegnamente di più blocchi possibile all'interno di un SM)
+
+Le risorse richieste da un blocco (e quindi da partizionare dentro ad un SM) sono tre:
+1. La dimensione del blocco, ovvero il numero di thread che devono essere concorrenti (in realtà anche numero di blocchi e numero di warp).
+2. Memoria Condivisa
+3. Registri
+
+In caso di problemi di occupancy, ridimensionare la quantità di smem, oppure il numero di registri necessari ad un thread, potrebbe risolvere il problema permettendo l'assegnamento di più blocchi allo stesso SM. **Cio che si desidera è raggiungere il numero di thread massimo gestibile dall'SM** (corrisponde ad una occupancy del 100%).
+
+**25. Che cos'è l'occupancy in CUDA?**
+L'occupancy è definita come il rapporto tra i warp attivi e il numero massimo di warp supportati per SM
+    
+    Occupancy [%] = Active Warps / Maximum Warps
+
+Una occupancy alta permette di fare latency hiding siccome ci saranno molti warp disponibili a sostituire quelli entrati in stallo;
+è chiaro che con un resource partitioning infelice il numero di thread occupati (warp) sarà molto minore rispetto al massimo supportato e questo si rifletterà sull'occupancy.
+
+Alcuni fattori che possono abbassare l'occupancy sono:
+- Dimensioni del blocco di thread: Se i blocchi sono troppo piccoli, si potrebbe essere limitati dal numero massimo di blocchi assegnabili ad un SM e non raggiungere il numero massimo di warps attivi.
+- Uso dei registri: Se un kernel utilizza troppi registri per thread, il numero totale di blocchi assegnabili ad un SM sarà limitato. Si potrebbe diminuire la dimensione del blocco ma questo causa il problema di sopra.
+- Memoria condivisa: Se un kernel utilizza molta memoria condivisa, potrebbe ridurre il numero di blocchi assegnabili un SM.
+
+**26. Parlami di CUDA Dynamic Parallelism**
+CDP è una estensione del modello di programmazione CUDA che permette la creazione e sincronizzazione dinamica (a runtime) di nuovi kernel direttamente dalla GPU. 
+- Molto utile per implementare algoritmo ricorsivi sulla GPU. 
+- È possibile posticipare a runtime la decisione su quanti blocchi e griglie creare sul device (vedi raffinamento adattivo della griglia nella simulazione di fluido dinamica)
+- Elimina in alcuni casi continui trasferimenti di memoria tra CPU e GPU
+- La GPU non è più un coprocessore totalmente governato dalla CPU ma diventa indipendente!
+
+Come funziona:
+- Il kernel/griglia parent continua immediatamente dopo il lancio del kernel child (asincronicità).
+- Attenzione a sincronizzare accessi ad aree di memoria comuni tra parent e child. La memoria è coerente tra i due solo:
+    - All'avvio della griglia child: il child vede tutto quello che ha fatto il padre prima del suo lancio
+    - Quando la griglia child completa: il padre vede tutto quello ha fatto il figlio dopo che si è sincronizzato
+- Puntatori a Memoria locale e smem l'uno dell'altro non sono accessibili in quanto rappresentano memoria privata
+- Un parent si considera completato solo quando tutte le griglie child create dai suoi thread (tutti) hanno terminato l'esecuzione (sincronizzazione implicita se il padre termina prima dei child).
+    - Sincronizzazione esplicita possibile con *CudaDeviceSynchronize()*
