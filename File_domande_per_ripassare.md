@@ -3,6 +3,8 @@ Un computer con un'architettura eterogenea è un tipo di computer che integra di
 
 Ad esempio: un computer con GPU e CPU, può eseguire sulla CPU i task sequenziali sfruttando la sua minore latenza delle operazioni, mentre può eseguire sulla GPU i task altamente paralleli sfruttandone l'alto throughput. A questo punto è il programmatore che decide dove far eseguire cosa per ottenere le migliori prestazioni.
 
+# MODULO 1
+
 ## SIMD
 **2. Descrivi in generale le caratteristiche del paradigma SIMD**
 SIMD è un paradigma di elaborazione di istruzioni in cui una singola istruzione SIMD elabora multipli dati eseguendo su di essi la medesima operazione. Questi dati sono memorizzati in __registri speciali detti estesi__ della CPU pensabili a come un array di registri normali.
@@ -31,6 +33,15 @@ Con il paradigma SIMD, il branching condizionata al valore di un registro esteso
 
 Se si desidera compiere azioni differenti sui dati all'interno di un registro esteso, si utilizzano apposite maschere prodotte da apposite istruzioni di confronto SIMD e operazioni logiche. Queste maschere filtrano le lane che rispettano le "condizioni di branch" e a cui applicare le operazioni desiderate.
 
+
+
+
+
+
+
+
+# MODULO 2
+
 ## Modello di programmazione CUDA
 **6. Che cos'è il modello di programmazione CUDA?**
 Il Modello di Programmazione definisce la struttura e le regole per sviluppare applicazioni parallele su GPU. In particolare definisce:
@@ -45,10 +56,10 @@ Un thread CUDA rappresenta un'unità di esecuzione elementare nella GPU. Ogni th
 1. Inizializzazione e Allocazione Memoria su CPU e GPU 
 2. Trasferimento Dati (Host → Device)
 3. Esecuzione (asincrona) del Kernel (Device)
-- (eventuali calcoli lato host)
-4. Recupero Risultati (Device → Host)
-5. Post-elaborazione (Host)
-6. Liberazione Risorse
+4. (eventuali calcoli lato host)
+5. Recupero Risultati (Device → Host)
+6. Post-elaborazione (Host)
+7. Liberazione Risorse
 
 **9. Come vengono organizzati i thread in CUDA?**
 Abbiamo due livelli di organizzazione:
@@ -71,7 +82,7 @@ Si, il numero massimo totale di thread per blocco è 1024 per la maggior parte d
 
 La Compute Capability (CC) di NVIDIA è un numero che identifica le caratteristiche e le capacità di una GPU NVIDIA in termini di funzionalità supportate e limiti hardware.
 
-# 13. Che influenza ha il dimensionamento di blocchi e griglie sulle performance?
+**13. Che influenza ha il dimensionamento di blocchi e griglie sulle performance?**
 Il dimensionamento di blocchi è griglie ha conseguenze dirette sull'utilizzo delle risorse della GPU e sull'occupancy raggiungibile.
 
 Ad esempio:
@@ -82,7 +93,7 @@ Altri fattori possono essere:
 - blocchi più grandi che accedono a dati localmente vicini possono anche sfruttare meglio la cache L1 rispetto a blocchi più piccoli.
 - blocchi con dimensione non multipla di 32 causano l'esecuzione di warp con molti thread disabilitati con spreco delle unità di calcolo
 
-# 14. Che influenza ha il mapping dei dati ai thread sulle performance?
+**14. Che influenza ha il mapping dei dati ai thread sulle performance?**
 Innanzitutto, è ovvio che il mapping dei dati deve essere corretto, ovvero bisogna garantire che il mapping permetta di ottenere   un risultato del calcolo parallelo uguale a quello del calcolo sequenziale. Per fare questo il mapping deve: garantire una copertura completa dei dati senza ripetizioni.
 
 Più interessante è il fatto che il mapping dei dati influenzi la scalabilità ed il parallelismo che si riesce ad ottenere da un kernel. Con un mapping inappropriato il kernel potrebbe non scalare al crescere della dimensione dei dati (pensa all'esempio del kernel in cui un thread  somma un'intera colonna tra due matrici) oppure potrebbe diventare proprio impossibile risolvere il problema (pensa ad un mapping con solo threadId -> si è limitati dalla dimensione del blocco).
@@ -363,4 +374,40 @@ UM è una estensione di UVA che oltre allo spazio di indirizzamento unico gestis
 
 Queste due tecniche astraggono i dettagli di gestione della memoria tra i vari dispositivi eliminando la necessità di duplicare i puntatori, fare trasferimenti, ecc. Come ogni astrazione però, peggiora la performance dato che il sistema deve capire dove e come trasferire i dati ed inoltre il posizionamento dei dati potrebbe non essere ottimale. Per le performance massime, la gestione "classica" è migliore.
 
+**33. Che cosa si intende con pattern di accesso alla memoria? Come mai è importante avere un pattern ottimo per le performance di un kernel?**
+
+Facciamo un passo indietro e definiamo prima che cos'è una transazione di memoria. Abbiamo che:
+- Le operazioni di memoria sono emesse ed eseguite per warp (32 thread).
+- Ogni thread fornisce l'indirizzo di memoria a cui vuole accedere, e la dimensione della richiesta del warp dipende dal tipo di dato (es. 32x4B per int, 32x8B per double).
+- La richiesta (lettura o scrittura) è servita da una o più transazioni di memoria.
+- Quest'ultime sono delle operazioni atomiche di lettura/scrittura tra la memoria globale e gli SM della GPU.
+- Le transazioni di memoria avvengono in blocchi di dimensioni variabili, come 128 byte o 32 byte 
+
+Con i pattern di accesso alla memoria si classifica come sono distribuiti gli indirizzi di una richiesta di accesso alla memoria globale da parte dei thread di un warp. In particolare si distinguono due caratteristiche:
+1. Allineamento: quando l'indirizzo iniziale della transazione è multiplo della dimensione di quest'ultima.
+2. Coalescenza: quando tutti i 32 thread di un warp accedono ad un blocco contiguo di memoria.
+Entrambe queste caratteristiche sono desiderabili per ridurre al minimo il numero di transazioni richieste per servire la memoria richiesta dal warp. Quando una di questa due proprietà è assente (non sempre è possibile averle entrambe) il numero di transazioni diventa maggiore del minimo teorico e, siccome esse corrispondono ad accessi alla memoria aggiuntivi sequenziale, si ha un peggioramento delle performance.
+
+Con un pattern di accesso ottimale si riesce a massimizzare la bandwidth effettiva nella lettura/scrittura dei dati, e siccome la maggior parte delle applicazioni GPU è limitata dalla larghezza di banda della memoria DRAM, ottimizzare l'uso della memoria globale è fondamentale per le prestazioni del kernel.
+
+**34. Puoi farmi qualche esempio di utilizzo della SMEM**
+1. Come ogni forma di memoria condivisa può essere utilizzata come canale di comunicazione per i thread appartenenti allo stesso blocco.
+2. Memoria scratch pad temporanea per elaborare dati on-chip e **migliorare i pattern di accesso alla global memory**. Ad esempio, nel caso della trasposta di una matrice, piuttosto che leggere direttamente le colonne in maniera non coalescente, posso prima far caricare a tutti i thread (del blocco, siamo limitati in dimensione ma posso gestire con i tile) i dati della matrice in smem **in maniera coalescente**, e poi accedere alla smem in maniera NON coalescente, siccome però stiamo accedendo alla smem e non alla memoria globale, alla peggio ci saranno dei bank conflict.
+3. Memoria scratch pad temporanea per limitare le sincronizzazioni dovute alle operazioni atomiche come nel caso dell'istogramma. Se preparo una copia dei dati in smem per ogni blocco e faccio lavorare i thread sulla smem piuttosto che sulla memoria globale, limito di molto la concorrenza nell'accesso ai dati condivisi e quindi le relative sincronizzazioni.
+4. Come memoria temporanea in cui carico i dati per evitare accessi multipli alla memoria globale come nel caso della riduzione parallela. Se ogni thread carica un dato in smem, i thread che prima facevano accessi multipli alla memoria globale ora ne fanno solo uno (per caricare il proprio dato), e gli accessi multipli si spostano verso la smem.
+
+**35. Come si utilizza la SMEM?**
+1. Caricamento in Shared Memory (Global → Shared)
+2. Sincronizzazione Post-Caricamento
+    - in modo che tutti i thread vedano nella smem i dati caricati dagli altri
+3. Elaborazione Dati
+4. (Opzionale) Sincronizzazione Post-Elaborazione
+    - in modo che tutti i thread vedano nella smem i dati caricati dagli altri
+    - opzionale se non mi serve vedere le modifiche degli altri thread
+5. Scrittura dei Risultati (Shared → Global)
+
+**36. Che cos'è un bank conflict?**
+La shared memory è suddivisa in 32 banchi (warp size) di memoria, ovvero 32 bin contenenti una word. Questa suddivisione permette ai thread di uno stesso warp di accedere contemporaneamente alla smem **se i thread accedono ad indirizzi di quest'ultima corrispondenti a banchi diversi**.
+
+Quando più tread tentano di accedere ad **indirizzi diversi corrispondenti allo stesso banco** si verifica un bank conflict che ha come conseguenza la sequenzializzazione delle risposte ai vari thread. Questo è chiaramente non desiderabile in quando diminuisce la potenziale bandwidth.
 
