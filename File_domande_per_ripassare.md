@@ -239,3 +239,128 @@ Come funziona:
 - Puntatori a Memoria locale e smem l'uno dell'altro non sono accessibili in quanto rappresentano memoria privata
 - Un parent si considera completato solo quando tutte le griglie child create dai suoi thread (tutti) hanno terminato l'esecuzione (sincronizzazione implicita se il padre termina prima dei child).
     - Sincronizzazione esplicita possibile con *CudaDeviceSynchronize()*
+
+## Modello di memoria CUDA
+**27. Parlami di kernel compute bound e kernel memory bound, come mai è importante distinguere queste due categorie?** 
+Un kernel è memory bound quando il tempo di esecuzione è limitato dalla velocità di accesso alla memoria piuttosto che dalla capacità di elaborazione dei core.
+- Le unitò di calcolo della GPU trascorrono più tempo in attesa dei dati rispetto a eseguire calcoli
+- poche operazioni per byte letto/scritto.
+- Accessi frequenti alla memoria.
+- Banda di memoria insufficiente rispetto ai requisiti del kernel.
+**NB**: è notevole il fatto che la peak performance teorica di una GPU considerando solo le unità di calcolo sia molto maggiore rispetto alla peak performance considerando la sua bandwidth. Questo significa che una GPU è intrinsecamente limitata da quanto velocemente può alimentare le sue unità di calcolo con i dati (collo di bottiglia nel caso di workload memory-bound).
+
+Un kernel è compute Bound quando il tempo di esecuzione è limitato dalla capacità di calcolo della GPU, con sufficiente larghezza di banda per i dati.
+- La GPU trascorre più tempo a eseguire calcoli rispetto all’attesa dei dati.
+- Operazioni aritmetiche intensive
+- Molte operazioni per byte letto/scritto
+
+Questa distinzione è utile i quanto per ottimizzare un kernel è cruciale comprendere se il collo di bottiglia risiede negli accessi alla memoria o nella capacità computazionale della GPU. Questa distinzione determina le strategie di ottimizzazione da adottare. Ad esempio:
+- In un contesto memory bound, è di notevole importanza ottimizzare gli accessi alla memoria considerando quale sia il tipo di memoria pià opportuna da usare e i pattern di accesso. Questo massimizza la bandwith effettiva di trasferimento dei dati
+    - Distinguiamo tra:
+        - bandwidth teorica (considera solo i dati "lordi" trasferiti)
+        - bandwidth effettiva (byte effettivamente letti/scritti; considera gli sprechi)
+- In un contesto compute bound, è di notevole importanza massimizzare l'occupancy delle unità di eleaborazione.
+- In entrambi i casi la scelta del tipo di dato influisce sulle performance
+    - memory bound: un tipo più piccolo mi permette di trasferire meno dati
+    - compute bound: tipi di dato diversi possono avere un numero diverso di unità di elaborazione
+
+**28. Come possiamo capire se un kernel è memory bound o compute bound? Che cos'è il diagramma di roofline?** 
+Innanzitutto un kernel memory bound su una GPU potrebbe diventare compute bound su di un altra e viceversa. Questo perchè GPU diverse hanno bandwidth e velocità di elaborazione diverse. Per stabilire la tipologia di un kernel utilizziamo quindi due metriche:
+- Intensità aritmetica
+    - dipende solo dal kernel
+    - definita come il rapporto tra la quantità di operazioni di calcolo e il volume di dati trasferiti dalla/verso la memoria di un kernel: AI = FLOPs / Byte richiesti
+    - misura quante operazioni il kernel fa per byte trasferito
+- Soglia di intensità aritmetica
+    - dipende dalla GPU in considerazione
+    - definita come il rapporto tra la peak performance per una determinata operazione e la bandwidth massima (teorica) della GPU Soglia(AI) = Theoretical Computational Peak Performance (FLOPs/s) / Bandwidth Peak Performance (Bytes/s)
+    - misura quante operazioni la GPU è in grado di eseguire per byte trasferito
+
+Unendo le informazioni di queste due metriche possiamo definire un kernel come:
+- memory bound: se AI < Soglia(AI)
+    - ovvero il kernel ha bisogno di eseguire meno operazioni per byte trasferito rispetto a quante ne supporta la GPU
+- compute bound: se AI > soglia(AI)
+    - il contrario di sopra
+
+Il diagramma di roofline è solo una visualizzazione grafica di quanto detto sopra:
+- la soglia(AI) è il punto in cui la linea diventa parallela all'asse x
+- in base alla AI, il kernel si può collocare prima o dopo il punto di svolta definito dalla soglia(AI) rendendo immediatamente visibile se esso è memory bound o compute bound
+- abbiamo roofline diverse per tipi di dato e memorie diverse
+
+**29. Che tipi di memoria esistono in CUDA?**
+- **Registri**:
+    - Ci vanno dentro le variabili locali all'interno dei kernel
+    - Strettamente privati per thread con durata limitata all'esecuzione del kernel.
+    - Allocati dinamicamente tra warp attivi in un SM; Minor uso di registri per thread permette di avere più **blocchi** concorrenti per SM (maggiore occupancy).
+    - Limite di [63-255] registri per thread
+    - Register Spilling verso la memoria locale
+- **Memoria locale**:
+    - off-chip (DRAM)
+    - Privata per thread
+    - Utilizzata per variabili che non possono essere allocate nei registri a causa di limiti di spazio (array locali, grandi strutture)
+    - Variabili che eccedono il limite di registri del kernel finiscono qua (register spill)
+- **SMEM e Cache L1**:
+    - Ogni SM ha memoria on-chip (molto veloce) limitata (es. 48-228 KB), condivisa tra smem e cache L1
+    - SMEM praticamente una cache programmabile condivisa tra thread di un blocco; Cache L1 Serve tutti i thread dell'SM
+    - SMEM richiede sincronizzazione per prevenire corse critiche
+    - La quantità da assegnare alla smem rispetto alla cache L1 è configurabile
+- **Memoria costante**:
+    - off-chip (DRAM)
+    - scope globale (visibile a tutti i kernel)
+    - Inizializzata dall'host e read-only per i kernel
+- **Memoria Texture**
+    - ...
+- **Memoria Globale**
+    - Memoria più grande e pià lente, e più comunemente usata sulla GPU.
+    - Memoria principale off-chip (DRAM) della GPU, accessibile tramite transazioni da 32, 64, o 128 byte.
+    - Scope e lifetime globale (da qui global memory)
+        - Accessibile da ogni thread di tutti i kernel
+        - Occhio alle corse critiche ed alla sincronizzazione (no sincronizzazione tra blocchi)
+    - Fattori chiave per l'efficienza:
+        - Coalescenza: Raggruppare accessi di thread adiacenti a indirizzi contigui.
+        - Allineamento: Indirizzi di memoria allineati con dim delle transazioni
+- **Vari tipi di cache**
+    - Cache L1
+        - Ogni SM (non SMSP) ne ha una propria
+    - Cache L2
+        - Unica e condivisa tra SM.
+        - Funge da ponte tra le cache L1 più veloci e la memoria principale più lenta.
+    - Constant Cache (sola lettura, per SM)
+    - Texture Cache (sola lettura, per SM)
+
+Le cache GPU, come quelle CPU, sono memorie on chip **non programmabili** utilizzate per memorizzare temporaneamente porzioni della memoria principale per accessi più veloci.
+
+**30. Come vengono trasferiti i dati dalla memoria dell'host alla memoria del device? A che cosa bisogna stare attenti in questo processo?**
+I dati nell'host vengono trasferiti sul device tramite il bus PCIe. Questo bus ha una bandwidth notevolemente minore rispetto a quella della memoria del device e potrebbe essere quindi un collo di bottiglia nell'esecuzione dell'applicazione. Diventa essenziale quindi massimizzare la velocità di trasferimento dati tra host e device; per fare questo bisogna prima capire come vengono effettivamente trasferiti i dati su i due dispositivi.
+
+Memoria Pageable:
+- La memoria allocata dall’host di default è pageable (soggetta a swap-out notificati tramite page fault).
+- La GPU non può accedere in modo sicuro alla memoria host pageable (mancanza di controllo sui page fault).
+
+Come avviene allora il trasferimento da Memoria Pageable?
+- Il driver CUDA alloca temporaneamente memoria host pinned (non soggetta a swap-out, bloccata in RAM).
+- Copia i dati dalla memoria host sorgente alla memoria pinned.
+- Trasferisce i dati dalla memoria pinned alla memoria del device (in modo sicuro siccome c'è la garanzia che i dati siano effettivamente presenti in RAM).
+
+**NB**: L'overhead dovuto alla allocazione temporanea di memoria pinned e copia dei dati su quest'ultima è la causa del peggioramento di performance di quando si fanno trasferimenti multipli rispetto a un trasferimento grande (Con un singolo trasferimento pago il costo di allocazione e copia 1 volta, con *n* trasferimenti lo pago *n* volte). 
+
+Cio a cui bisogna fare attenzione è quindi evitare trasferimenti multipli quando non necessario. In alternativa posso, allocare direttamente della memoria pinned sull'host e, non solo non mi devo preoccupare di raggrupare i trasferimenti, ma evito anche proprio il costo di copia che avevamo prima da memoria paginabile a pinned (inoltre, la memoria pinned mi permette anche di effettuare dei trasferimenti asincroni). La memoria pinned però è più costosa da allocare e se ne alloco troppa possono degradare le prestazioni dell'host.
+
+**31. Che cos'è la memoria zero copy?**
+La memoria "Zero-Copy" è una tecnica che consente al device di accedere direttamente alla memoria dell'host senza la necessità di copiare esplicitamente i dati tra le due memorie. In pratica è memoria pinned dell’host che è **mappata nello spazio degli indirizzi del device** e di conseguenza è accessibile a quest'ultimo (stessa memoria fisica ma puntatori comunque diversi).
+- È un'eccezione alla regola che l'host non può accedere direttamente alle variabili del dispositivo e viceversa.
+- Utile per dati a cui si accede raramente, evitando copie in memoria device e riducendo l'occupazione di quest'ultima
+    - Evita trasferimenti espliciti (impliciti per il PCIe)
+- Peggiora le prestazioni se utilizzata per operazioni di lettura/scrittura frequenti o con grandi blocchi di dati in quanto ogni transazione alla memoria mappata passa per il bus PCIe che ha una bandwidth piccola.
+- Inoltre, si ha accesso concorrente a un area di memoria comune da parte di host e device... Necessità di sincronizzazione altrimenti corse critiche
+
+**32. Che cosa sono Unified Virtual Addressing (UVA) e Unified Memory (UM)?**
+UVA è una tecnica che permette alla CPU e alla GPU di condividere lo stesso spazio di indirizzamento **virtuale** (la memoria fisica rimane distinta). Elimina quindi la distinzione tra un puntatore (adesso virtuale) host e uno device.
+
+NB: Con UVA però, si ha comunque bisogno di sapere se si sta allocando memoria su GPU o CPU dato che questa tecnica **non gestisce la migrazione dei dati** nelle corrette memoria fisiche, richiedendo trasferimenti manuali espliciti.
+
+UM è una estensione di UVA che oltre allo spazio di indirizzamento unico gestisce in maniera automatica anche i trasferimenti di memoria tra i vari dispositivi. Si parla di *managed memory* (essa è specificabile con opportune keyword).
+- Non è più necessario esplicitare i trasferimenti (come con la memoria zero copy) e non è più necessario distinguere tra puntatori host e device (come con UVA). In pratica posso fare *cudaMallocManaged/malloc* e non preoccuparmi più di niente come se stessi utilizzando un unico dispositivo.
+
+Queste due tecniche astraggono i dettagli di gestione della memoria tra i vari dispositivi eliminando la necessità di duplicare i puntatori, fare trasferimenti, ecc. Come ogni astrazione però, peggiora la performance dato che il sistema deve capire dove e come trasferire i dati ed inoltre il posizionamento dei dati potrebbe non essere ottimale. Per le performance massime, la gestione "classica" è migliore.
+
+
