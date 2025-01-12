@@ -1,4 +1,4 @@
-**1. Che cos'è un'architettura eterogenea? Perchè l'abbimo esplorata?**
+**1. Che cos'è un'architettura eterogenea? Perchè l'abbiamo esplorata?**
 Un computer con un'architettura eterogenea è un tipo di computer che integra diversi tipi di processori o core di elaborazione al suo interno combinandone i vantaggi (e bypassando i svantaggi, le cose in cui non sono bravo le faccio fare ad un altro più bravo di me). Il computer, avendo a disposizione unità di calcolo eterogenee, può far eseguire su ognuna di esse il task per cui sono più portate velocizzando in questo modo i calcoli e ottenendo flessibilità. 
 
 Ad esempio: un computer con GPU e CPU, può eseguire sulla CPU i task sequenziali sfruttando la sua minore latenza delle operazioni, mentre può eseguire sulla GPU i task altamente paralleli sfruttandone l'alto throughput. A questo punto è il programmatore che decide dove far eseguire cosa per ottenere le migliori prestazioni.
@@ -26,7 +26,7 @@ In generale quelle classiche di un processore, con in aggiunta istruzioni per la
 - consentire operazioni con saturazione e operazioni molto comuni come SAD (Sum of Absolute Differences) o FMA (Fused Multiply Add)
 
 **4. Che cos'è una operazione con saturazione e come mai è utile?**
-Una operazione con saturazione è una operazione che non va in overflow/underflow è utile quando serve solo sapere se un valore è molto grande o molto piccolo.
+Una operazione con saturazione è una operazione che non va in overflow/underflow ma "satura" al valore massimo/minimo. è utile quando serve solo sapere se un valore è molto grande o molto piccolo.
 
 **5. Parlami del branching in SIMD**
 Con il paradigma SIMD, il branching condizionata al valore di un registro esteso non è supportato in quanto non applicabile (se 3 lane su 8 rispettano la condizione di branching salto o non salto? non ha senso...).
