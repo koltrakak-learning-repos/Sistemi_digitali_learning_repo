@@ -98,6 +98,13 @@ Con questa tecnica si hanno due vantaggi:
 - Speedup nel calcolo: operazioni tra interi richiedono un numero di clock minore rispetto ad operazioni tra float
 - Non c'è bisogno di unità di calcolo FP: quest'ultime potrebbero essere non disponibili (microcontrollori) oppure troppo costose in termini di spazio/potenza consumata(FPGA)
 
+**NOTA**: La tecnica del passare al mondo degli interi con una moltiplicazione per un fattore appropriato in realtà si può applicare anche nel contesto floating-point. In questo caso però, il range dinamico molto largo porta ad avere dei fattori moltiplicativi enormi se si moltiplica, ad esempio, un float piccolo (in valore assoluto) per uno molto grande. Questo porta ad ottenere dei valori interi che hanno bisogno di un numero di bit enorme per essere rappresentati e fa perdere i vantaggi del passare alla rappresentazione intera.
+
+**11. Quando è necessario utilizzare floating point?**
+Utilizzare floating point è necessaria quando si ha bisogno del suo elevato range dinamico. In generale, se si riesce ad evitare (ad esempio utilizzando la tecnica possibile con fixed-point) è meglio in quanto è costoso, sia in termini di performance, che di energia consumata. 
+
+Se si ha la necessità di usare floating-point, è importante utilizzare il formato più compatto possibile. Se invece floating point non è strettamente necessario, potrebbe essere più intelligente utilizzare fixed-point e passare al mondo degli interi.
+
 # MODULO 2
 
 ## Modello di programmazione CUDA
