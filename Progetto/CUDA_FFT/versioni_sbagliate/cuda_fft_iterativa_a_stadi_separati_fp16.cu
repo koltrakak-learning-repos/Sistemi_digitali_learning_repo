@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -24,18 +25,18 @@
 }
 
 typedef struct {
-    float real;
-    float imag;
+    __half real;
+    __half imag;
 } complex;
 
 /*
     funzioni di utilità
 */
-__host__ __device__ complex prodotto_tra_complessi(complex a, complex b) {
+__device__ complex prodotto_tra_complessi(complex a, complex b) {
     complex result;
 
-    result.real = a.real*b.real - a.imag*b.imag;
-    result.imag = a.real*b.imag + a.imag*b.real;
+    result.real = __hsub(__hmul(a.real, b.real), __hmul(a.imag, b.imag));
+    result.imag = __hadd(__hmul(a.real, b.imag), __hmul(a.imag, b.real));
 
     return result;
 }
@@ -46,22 +47,22 @@ double cpuSecond() {
     return ((double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9);
 }
 
-void checkResult(complex *hostRef, complex *gpuRef, const int N) {
-    double epsilon = 1.0E-4;    
-    bool match = 1;
+// void checkResult(complex *hostRef, complex *gpuRef, const int N) {
+//     double epsilon = 1.0E-4;    
+//     bool match = 1;
 
-    for (int i = 0; i < N; i++) {
-        if (fabs(hostRef[i].real - gpuRef[i].real) > epsilon || fabs(hostRef[i].imag - gpuRef[i].imag) > epsilon) {
-            match = 0;
-            printf("Arrays do not match!\n");
-            printf("host (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
-            break;
-        }
-    }
+//     for (int i = 0; i < N; i++) {
+//         if (fabs(hostRef[i].real - gpuRef[i].real) > epsilon || fabs(hostRef[i].imag - gpuRef[i].imag) > epsilon) {
+//             match = 0;
+//             printf("Arrays do not match!\n");
+//             printf("host (%f; %f) gpu (%f; %f) at current %d\n", hostRef[i].real, hostRef[i].imag, gpuRef[i].real, gpuRef[i].imag, i);
+//             break;
+//         }
+//     }
 
-    if (match)
-        printf("Arrays match.\n\n");
-}
+//     if (match)
+//         printf("Arrays match.\n\n");
+// }
 
 // Funzione strana che ho trovato. Mi permette di ottenere il bit reverse order degli indici
 // dei campioni della trasformata in maniera efficiente O(log n), rispetto all'usare un ciclo O(n)
@@ -95,14 +96,14 @@ __host__ __device__ uint32_t reverse_bits(uint32_t x) {
 
 void convert_to_complex(short *input, complex *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i].real = (float)input[i];
+        output[i].real = (__half)input[i];
         output[i].imag = 0.0;
     }
 }
 
 void convert_to_short(complex *input, short *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i] = (short)round(input[i].real); 
+        output[i] = (short)round(__half2float(input[i].real)); 
     }
 }
 
@@ -110,142 +111,142 @@ void convert_to_short(complex *input, short *output, int N) {
 /*
     funzioni per fft lato cpu
 */
-int fft_iterativa(complex *input, complex *output, int N) {
-    // N & (N - 1) = ...01000... & ...00111... = 0
-    if (N & (N - 1)) {
-        fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
+// int fft_iterativa(complex *input, complex *output, int N) {
+//     // N & (N - 1) = ...01000... & ...00111... = 0
+//     if (N & (N - 1)) {
+//         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
 
-        return -1;
-    }
+//         return -1;
+//     }
 
-    // num_stadi = "quante volte posso dividere N per due"
-    int num_stadi = (int) log2f((float) N);
+//     // num_stadi = "quante volte posso dividere N per due"
+//     int num_stadi = (int) log2f((float) N);
 
-    // stadio 0: DFT di un campione
-    // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
-    // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
-    // che avviene in modo esplicito nella versione ricorsiva.
-    double start = cpuSecond();
-    for (uint32_t i = 0; i < N; i++) {
-        uint32_t rev = reverse_bits(i);
-        // Non faccio un bit reversal completo ma uno parziale che 
-        // tiene conto solo di bit necessari a rappresentare gli N indici
-        // del segnale in ingresso. Per cui, qua mantengo solo log_2(N) bit 
-        rev = rev >> (32 - num_stadi);
+//     // stadio 0: DFT di un campione
+//     // L'output di questo primo stadio equivale all'input riordinato in bit-reverse order
+//     // Questo riordino corrisponde implicitamente alla separazione in pari e dispari
+//     // che avviene in modo esplicito nella versione ricorsiva.
+//     double start = cpuSecond();
+//     for (uint32_t i = 0; i < N; i++) {
+//         uint32_t rev = reverse_bits(i);
+//         // Non faccio un bit reversal completo ma uno parziale che 
+//         // tiene conto solo di bit necessari a rappresentare gli N indici
+//         // del segnale in ingresso. Per cui, qua mantengo solo log_2(N) bit 
+//         rev = rev >> (32 - num_stadi);
 
-        /*
-            Per comodità ho aggiunto questo controllo che mi permette di fare delle
-            trasformazioni inplace se input == output
-        */
-        if(input == output) {
-            if (i < rev) {  
-                complex temp = input[i];
-                output[i] = input[rev];
-                output[rev] = temp;
-            }
-        }
-        else {
-            output[i] = input[rev];
-        }
-    }
+//         /*
+//             Per comodità ho aggiunto questo controllo che mi permette di fare delle
+//             trasformazioni inplace se input == output
+//         */
+//         if(input == output) {
+//             if (i < rev) {  
+//                 complex temp = input[i];
+//                 output[i] = input[rev];
+//                 output[rev] = temp;
+//             }
+//         }
+//         else {
+//             output[i] = input[rev];
+//         }
+//     }
 
-    // Stadi 1, ..., log_2(N)
-    for (int stadio = 1; stadio <= num_stadi; stadio++) {
-        // Variabili di appoggio in cui mi salvo il numero di campioni da considerare nello stadio corrente
-        int N_stadio_corrente = 1 << stadio;
-        int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
+//     // Stadi 1, ..., log_2(N)
+//     for (int stadio = 1; stadio <= num_stadi; stadio++) {
+//         // Variabili di appoggio in cui mi salvo il numero di campioni da considerare nello stadio corrente
+//         int N_stadio_corrente = 1 << stadio;
+//         int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
-        // Itera sull'array di output con passi pari a N_stadio_corrente
-        // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
-        for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
-            // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
-            for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                float phi = (-2*PI/N_stadio_corrente) * j; 
-                complex twiddle_factor = {
-                    cos(phi),
-                    sin(phi)
-                };
+//         // Itera sull'array di output con passi pari a N_stadio_corrente
+//         // k = indice (denormalizzato) del blocco di farfalle considerato nell'array di output 
+//         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
+//             // Calcolo due campioni alla volta per cui itero fino a N_stadio_corrente_mezzi
+//             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
+//                 float phi = (-2*PI/N_stadio_corrente) * j; 
+//                 complex twiddle_factor = {
+//                     cos(phi),
+//                     sin(phi)
+//                 };
 
-                complex a = output[k + j];
-                complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+//                 complex a = output[k + j];
+//                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
-                // calcolo trasformata
-                output[k + j].real = a.real + b.real;
-                output[k + j].imag = a.imag + b.imag;
-                // simmetria per la seconda metà
-                output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
-                output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
-            }
-        }
-    }
+//                 // calcolo trasformata
+//                 output[k + j].real = a.real + b.real;
+//                 output[k + j].imag = a.imag + b.imag;
+//                 // simmetria per la seconda metà
+//                 output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
+//                 output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+//             }
+//         }
+//     }
 
-    return EXIT_SUCCESS;
-}
+//     return EXIT_SUCCESS;
+// }
 
-int ifft_iterativa(complex *input, complex *output, int N) {
-    if (N & (N - 1)) {
-        fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
+// int ifft_iterativa(complex *input, complex *output, int N) {
+//     if (N & (N - 1)) {
+//         fprintf(stderr, "N=%u deve essere una potenza di due\n", N);
 
-        return -1;
-    }
+//         return -1;
+//     }
 
-    int num_stadi = (int) log2f((float) N);
+//     int num_stadi = (int) log2f((float) N);
 
-    // stadio 0
-    for (uint32_t i = 0; i < N; i++) {
-        uint32_t rev = reverse_bits(i);
-        rev = rev >> (32 - num_stadi);
+//     // stadio 0
+//     for (uint32_t i = 0; i < N; i++) {
+//         uint32_t rev = reverse_bits(i);
+//         rev = rev >> (32 - num_stadi);
 
-        /*
-            Per comodità ho aggiunto questo controllo che mi permette di fare delle
-            trasformazioni inplace
-        */
-        if(input == output) {
-            if (i < rev) {  
-                complex temp = input[i];
-                output[i] = input[rev];
-                output[rev] = temp;
-            }
-        }
-        else {
-            output[i] = input[rev];
-        }
-    }
+//         /*
+//             Per comodità ho aggiunto questo controllo che mi permette di fare delle
+//             trasformazioni inplace
+//         */
+//         if(input == output) {
+//             if (i < rev) {  
+//                 complex temp = input[i];
+//                 output[i] = input[rev];
+//                 output[rev] = temp;
+//             }
+//         }
+//         else {
+//             output[i] = input[rev];
+//         }
+//     }
 
-    // Stadi 1, ..., log_2(N)
-    for (int stadio = 1; stadio <= num_stadi; stadio++) {
-        int N_stadio_corrente = 1 << stadio;
-        int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
+//     // Stadi 1, ..., log_2(N)
+//     for (int stadio = 1; stadio <= num_stadi; stadio++) {
+//         int N_stadio_corrente = 1 << stadio;
+//         int N_stadio_corrente_mezzi = N_stadio_corrente / 2;
 
-        for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
-            for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
-                float phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
-                complex twiddle_factor = {
-                    cos(phi),
-                    sin(phi)
-                };
+//         for (uint32_t k = 0; k < N; k += N_stadio_corrente) {
+//             for (int j = 0; j < N_stadio_corrente_mezzi; j++) {
+//                 float phi = 2*PI/N_stadio_corrente * j;   // segno + per ifft 
+//                 complex twiddle_factor = {
+//                     cos(phi),
+//                     sin(phi)
+//                 };
 
-                complex a = output[k + j];
-                complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
+//                 complex a = output[k + j];
+//                 complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
-                // calcolo antitrasformata
-                output[k + j].real = a.real + b.real;
-                output[k + j].imag = a.imag + b.imag;
-                // simmetria per la seconda metà
-                output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
-                output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
-            }
-        }
-    }
+//                 // calcolo antitrasformata
+//                 output[k + j].real = a.real + b.real;
+//                 output[k + j].imag = a.imag + b.imag;
+//                 // simmetria per la seconda metà
+//                 output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
+//                 output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+//             }
+//         }
+//     }
 
-    // normalizza i risultati alla fine
-    for(int i=0; i<N; i++) {
-        output[i].real /= N;
-        output[i].imag /= N;
-    }
+//     // normalizza i risultati alla fine
+//     for(int i=0; i<N; i++) {
+//         output[i].real /= N;
+//         output[i].imag /= N;
+//     }
 
-    return EXIT_SUCCESS;
-}
+//     return EXIT_SUCCESS;
+// }
 
 
 
@@ -282,22 +283,23 @@ __global__ void fft_stage(complex *output, int N, int N_stadio_corrente, int N_s
     // % evitare il modulo non cambia le performance
     // int j = thread_id - (thread_id / N_stadio_corrente_mezzi) * N_stadio_corrente_mezzi;
 
-    printf("\t[Warp: %d, N_cur: %d] prima accedo a %d, e poi accedo a %d\n", thread_id/32, N_stadio_corrente, k+j, k+j+N_stadio_corrente_mezzi);
+    // printf("\t[Warp: %d, N_cur: %d] prima accedo a %d, e poi accedo a %d\n", thread_id/32, N_stadio_corrente, k+j, k+j+N_stadio_corrente_mezzi);
 
-    float phi = __fdividef(-2.0f*PI, N_stadio_corrente) * j;
+    __half phi = __hmul(__hdiv(-2.0f*PI, N_stadio_corrente), j);
+    // non esistono funzioni per cos e sin con fp16, devo fare delle conversioni
     complex twiddle_factor = {
-        __cosf(phi),
-        __sinf(phi)
+        __float2half(__cosf(__half2float(phi))),
+        __float2half(__sinf(__half2float(phi)))
     };
 
     complex a = output[k + j];
     complex b = prodotto_tra_complessi(twiddle_factor, output[k + j + N_stadio_corrente_mezzi]);
 
-    output[k + j].real = a.real + b.real;
-    output[k + j].imag = a.imag + b.imag;
+    output[k + j].real = __hadd(a.real, b.real);
+    output[k + j].imag = __hadd(a.imag, b.imag);
     // simmetria
-    output[k + j + N_stadio_corrente_mezzi].real = a.real - b.real;
-    output[k + j + N_stadio_corrente_mezzi].imag = a.imag - b.imag;
+    output[k + j + N_stadio_corrente_mezzi].real = __hsub(a.real, b.real);
+    output[k + j + N_stadio_corrente_mezzi].imag = __hsub(a.imag, b.imag);
 }
 
 double fft_iterativa_cuda(complex *input, complex *output, int N) {
@@ -408,9 +410,9 @@ int main(int argc, char **argv) {
 
     // calcolo la FFT
     convert_to_complex(signal_samples, complex_signal_samples, num_samples);
-    double start = cpuSecond();
-    fft_iterativa(complex_signal_samples, fft_samples, num_samples);
-    double elapsed_host = cpuSecond() - start;
+    // double start = cpuSecond();
+    // fft_iterativa(complex_signal_samples, fft_samples, num_samples);
+    // double elapsed_host = cpuSecond() - start;
 
 
 
@@ -443,10 +445,10 @@ int main(int argc, char **argv) {
     
     double elapsed_device = fft_iterativa_cuda(complex_signal_samples, gpu_ref_fft_samples, num_samples); 
     
-    checkResult(fft_samples, gpu_ref_fft_samples, num_samples);
-    printf("Host: %f ms\n", elapsed_host*1000);
+    // checkResult(fft_samples, gpu_ref_fft_samples, num_samples);
+    // printf("Host: %f ms\n", elapsed_host*1000);
     printf("Device: %f ms\n", elapsed_device*1000);
-    printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
+    // printf("SPEEDUP: %f\n", elapsed_host/elapsed_device);
 
 
 
@@ -456,33 +458,33 @@ int main(int argc, char **argv) {
     
 
     // inizializzazione dati
-    char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
-    sprintf(generated_filename, "GPU-IFFT-generated-%s", FILE_NAME);
-    memset(signal_samples, 0, num_samples*sizeof(short));
-    memset(complex_signal_samples, 0, num_samples);
+    // char generated_filename[100];   //dimensione arbitraria perchè non ho voglia
+    // sprintf(generated_filename, "GPU-IFFT-generated-%s", FILE_NAME);
+    // memset(signal_samples, 0, num_samples*sizeof(short));
+    // memset(complex_signal_samples, 0, num_samples);
 
-    // Preparazione del formato del file di output
-    drwav_data_format format_out;
-    format_out.container = drwav_container_riff;
-    format_out.format = DR_WAVE_FORMAT_PCM;
-    format_out.channels = 1;              // Mono
-    format_out.sampleRate = SAMPLE_RATE;  // Frequenza di campionamento
-    format_out.bitsPerSample = 16;        // 16 bit per campione
+    // // Preparazione del formato del file di output
+    // drwav_data_format format_out;
+    // format_out.container = drwav_container_riff;
+    // format_out.format = DR_WAVE_FORMAT_PCM;
+    // format_out.channels = 1;              // Mono
+    // format_out.sampleRate = SAMPLE_RATE;  // Frequenza di campionamento
+    // format_out.bitsPerSample = 16;        // 16 bit per campione
 
-    // Inizializzazione del file di output
-    drwav wav_out;
-    if (!drwav_init_file_write(&wav_out, generated_filename, &format_out, NULL)) {
-        fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
-        return 1;
-    }
+    // // Inizializzazione del file di output
+    // drwav wav_out;
+    // if (!drwav_init_file_write(&wav_out, generated_filename, &format_out, NULL)) {
+    //     fprintf(stderr, "Errore nell'aprire il file di output %s.\n", generated_filename);
+    //     return 1;
+    // }
     
-    ifft_iterativa(gpu_ref_fft_samples, complex_signal_samples, num_samples);
-    convert_to_short(complex_signal_samples, signal_samples, num_samples);
+    // ifft_iterativa(gpu_ref_fft_samples, complex_signal_samples, num_samples);
+    // convert_to_short(complex_signal_samples, signal_samples, num_samples);
 
-    // Scrittura dei dati audio nel file di output
-    drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
-    drwav_uninit(&wav_out);
-    printf("File WAV %s creato con successo\n", generated_filename);
+    // // Scrittura dei dati audio nel file di output
+    // drwav_write_pcm_frames(&wav_out, num_samples, signal_samples);
+    // drwav_uninit(&wav_out);
+    // printf("File WAV %s creato con successo\n", generated_filename);
 
     free(signal_samples);
     free(complex_signal_samples);
