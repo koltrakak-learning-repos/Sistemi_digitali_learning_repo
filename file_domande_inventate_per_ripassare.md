@@ -188,18 +188,20 @@ Gli SM sono dei processori, ovvero cio che esegue le istruzioni specificate dai 
 Ogni SM, al suo interno, contiene:
 - diverse **unità di calcolo** (INT unit, FP32 unit, FP64 unit, SFU, Tensor Core, ecc...), ognuna delle quali è in grado di eseguire un thread in parallelo con altri nel medesimo SM (Un SM ospita più Blocchi e quindi multipli warp/thread). 
 
+- **Load e store units**: per i trasferimenti dei dati.
+
 - almeno una coppia (ma di solito di pià) di **warp-scheduler** e **dipatch unit**; queste due unità si occupano rispettivamente di: selezionare quali sono i warp pronti all'esecuzione (all'interno di un blocco assegnato al SM) e di assegnare effettivamente ai warp selezionati le unità di calcolo appropriate. 
 
-- un'insieme di registri, che vengono spartiti ai thread in esecuzione all'interno dell'SM per la memorizzazione ed il calcolo di dati temporanei.
+- un'insieme di **registri**, che vengono spartiti ai thread in esecuzione all'interno dell'SM per la memorizzazione ed il calcolo di dati temporanei.
 
-- Shared memory/L1 cache: una memoria super veloce condivisa tra i thread di un blocco (ecco perchè la shared memory è shared solo all'interno del blocco -> è fisicamente presente solo all'interno del SM in cui il blocco è stato assegnato).
+- **Shared memory/L1 cache**: una memoria super veloce condivisa tra i thread di un blocco (ecco perchè la shared memory è shared solo all'interno del blocco -> è fisicamente presente solo all'interno del SM in cui il blocco è stato assegnato).
 La stessa memoria è divisa tra shared memory (cache programmabile) e cache, ed è il programmatore a decidere/consigliare quanta memoria assegnare all'una rispetto all'altra in base al problema da risolvere.
 
 In realtà, questi sono i componenti principali di SM vecchi. Gli SM delle GPU moderne suddividono poi gli SM in vari SMSP, e sono loro ad essere fatti così. In questo modo si aumenta ulteriormente il parallelismo disponibile a livello di hardware.
 
 Infine, a livello di architettura di GPU globale, sono notevoli anche:
-- la cache L2: che è condivisa tra tutti gli SM e (quindi tutti i blocchi)
-- il giga thread engine:  Scheduler globale per la distribuzione dei blocchi.    
+- la **cache L2**: che è condivisa tra tutti gli SM e (quindi tutti i blocchi)
+- il **giga thread engine**:  Scheduler globale per la distribuzione dei blocchi.    
 
 **23. Come vengono distribuiti i blocchi tra i vari SM?**
 - Quando un kernel viene lanciato, i blocchi di vengono automaticamente e dinamicamente distribuiti dal GigaThread Engine agli SM.
