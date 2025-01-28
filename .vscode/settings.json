@@ -19,7 +19,8 @@
         "utility": "cpp",
         "typeinfo": "cpp",
         "string_view": "cpp",
-        "initializer_list": "cpp"
+        "initializer_list": "cpp",
+        "cstring": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
