@@ -106,4 +106,8 @@ int main(int argc, char** argv) {
 
     printf("Elapsed sequential:\t %f ms\n", elapsed_sequential*1000);
     printf("Elapsed parallel:\t %f ms;\tSpeedup: %0.2f\n", elapsed_parallel*1000, elapsed_sequential/elapsed_parallel);
+
+    free(mat_a);
+    free(mat_b);
+    free(mat_c);
 }
