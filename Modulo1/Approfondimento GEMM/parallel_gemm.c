@@ -20,23 +20,7 @@ void stampa_matrice(const int* mat, int dim) {
     printf("\n");
 }
 
-double gemm(const int* mat_a, const int* mat_b, int* mat_c, int dim) {
-    double start = omp_get_wtime();
 
-    // i primi due cicli considerano ogni elemento della matrice
-    for(int i=0; i<dim; i++) {
-        for(int j=0; j<dim; j++) {
-            // il singolo elemento della matrice risultante viene calcolato considerando un intera riga/colonna
-            for(int k=0; k<dim; k++) {
-                mat_c[i*dim + j] += mat_a[i*dim + k] * mat_b[k*dim + j];
-            }  
-        }     
-    }
-
-    double end = omp_get_wtime();
-
-    return end-start;
-}
 
 double parallel_gemm(const int* mat_a, const int* mat_b, int* mat_c, int dim) {
     double start = omp_get_wtime();
@@ -96,7 +80,6 @@ int main(int argc, char** argv) {
     stampa_matrice(mat_c, dim_matrix);
     #endif
 
-    double elapsed_sequential = gemm(mat_a, mat_b, mat_c, dim_matrix);
     double elapsed_parallel = parallel_gemm(mat_a, mat_b, mat_c, dim_matrix);
 
     #ifdef DEBUG
@@ -104,6 +87,5 @@ int main(int argc, char** argv) {
     stampa_matrice(mat_c, dim_matrix);
     #endif
 
-    printf("Elapsed sequential:\t %f ms\n", elapsed_sequential*1000);
-    printf("Elapsed parallel:\t %f ms;\tSpeedup: %0.2f\n", elapsed_parallel*1000, elapsed_sequential/elapsed_parallel);
+    printf("Elapsed parallel:\t %f ms;\tSpeedup: %0.2f\n", elapsed_parallel*1000);
 }
