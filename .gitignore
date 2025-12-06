@@ -5,3 +5,5 @@
 
 # Ignora tutti i file con estensione .txt
 *.txt
+
+*.mp4
